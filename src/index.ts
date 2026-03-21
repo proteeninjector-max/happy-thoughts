@@ -337,11 +337,19 @@ export default {
       return handleRegister(request, env);
     }
 
+    if (request.method === "GET" && url.pathname === "/health") {
+      return jsonResponse({
+        status: "ok",
+        version: "1.0.0",
+        timestamp: new Date().toISOString()
+      });
+    }
+
     if (request.method === "GET" && url.pathname === "/discover") {
       return handleDiscover(request, env);
     }
 
-    return jsonResponse({ error: "not_found" }, 404);
+    return jsonResponse({ error: "Not found" }, 404);
   }
 };
 
