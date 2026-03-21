@@ -9,6 +9,51 @@ workers_dev = true
 PROFIT_WALLET = "0x170992058429d3d52615fef70c1006f5e5d6467c"
 
 [[kv_namespaces]]
-binding = "HT_KV"
+binding = "PROVIDERS"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "SCORES"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "THOUGHTS"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "BUNDLES"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "BUYERS"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "FEEDBACK"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "FLAGS"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "REFERRALS"
+id = ""
+preview_id = ""
+
+[[kv_namespaces]]
+binding = "AGREEMENTS"
 id = ""
 preview_id = ""
