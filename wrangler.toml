@@ -1,0 +1,14 @@
+name = "happythoughts"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+account_id = ""
+workers_dev = true
+
+[vars]
+# PLACEHOLDER — set in deployment environment
+PROFIT_WALLET = "0x170992058429d3d52615fef70c1006f5e5d6467c"
+
+[[kv_namespaces]]
+binding = "HT_KV"
+id = ""
+preview_id = ""
