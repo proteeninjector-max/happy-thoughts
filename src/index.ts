@@ -1,75 +1,4 @@
-type X402VerificationResult =
-  | { ok: true; payer: string; amount: number; token: string; network: string }
-  | { ok: false; response: Response };
-
-const X402_HEADER = "x402-payment"; // expected JSON payload
-
-export async function verifyX402Payment(
-  request: Request,
-  requiredAmount: number
-): Promise<X402VerificationResult> {
-  const raw = request.headers.get(X402_HEADER);
-  if (!raw) {
-    return {
-      ok: false,
-      response: new Response(
-        JSON.stringify({
-          error: "payment_required",
-          message: "x402 payment header missing",
-          requiredAmount,
-          token: "USDC",
-          network: "Base",
-          header: X402_HEADER
-        }),
-        { status: 402, headers: { "content-type": "application/json" } }
-      )
-    };
-  }
-
-  let payload: any;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    return {
-      ok: false,
-      response: new Response(
-        JSON.stringify({
-          error: "payment_required",
-          message: "invalid x402 payment payload",
-          requiredAmount,
-          token: "USDC",
-          network: "Base",
-          header: X402_HEADER
-        }),
-        { status: 402, headers: { "content-type": "application/json" } }
-      )
-    };
-  }
-
-  const amount = Number(payload.amount);
-  const token = String(payload.token || "USDC");
-  const network = String(payload.network || "Base");
-  const payer = String(payload.payer || payload.wallet || "");
-
-  if (!payer || !Number.isFinite(amount) || amount < requiredAmount) {
-    return {
-      ok: false,
-      response: new Response(
-        JSON.stringify({
-          error: "payment_required",
-          message: "insufficient x402 payment",
-          requiredAmount,
-          token: "USDC",
-          network: "Base",
-          header: X402_HEADER
-        }),
-        { status: 402, headers: { "content-type": "application/json" } }
-      )
-    };
-  }
-
-  return { ok: true, payer, amount, token, network };
-}
+import { verifyX402Payment } from "./middleware/payment";
 
 const SPECIALTY_LEAVES = new Set([
   "trading/signals",
@@ -236,7 +165,7 @@ async function handleDiscover(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleRegister(request: Request, env: Env): Promise<Response> {
-  const payment = await verifyX402Payment(request, 0.25);
+  const payment = await verifyX402Payment(request, env, 0.25, "Happy Thoughts registration");
   if (!payment.ok) return payment.response;
 
   let body: any;
@@ -365,4 +294,9 @@ export interface Env {
   REFERRALS: KVNamespace;
   AGREEMENTS: KVNamespace;
   PROFIT_WALLET: string;
+  OWNER_KEY?: string;
+  OWNER_KEY_HEADER?: string;
+  X402_FACILITATOR_URL?: string;
+  X402_NETWORK?: string;
+  X402_ASSET?: string;
 }

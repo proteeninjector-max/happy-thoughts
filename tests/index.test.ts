@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import worker, { verifyX402Payment } from "../src/index";
+import worker from "../src/index";
 
 type KVEntry = { key: string; value: string };
 
@@ -40,7 +40,9 @@ function makeEnv() {
     FLAGS: new MockKV(),
     REFERRALS: new MockKV(),
     AGREEMENTS: new MockKV(),
-    PROFIT_WALLET: "0x170992058429d3d52615fef70c1006f5e5d6467c"
+    PROFIT_WALLET: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+    OWNER_KEY: "test-owner",
+    OWNER_KEY_HEADER: "X-OWNER-KEY"
   } as any;
 }
 
@@ -70,7 +72,7 @@ describe("HappyThoughts Phase 1", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x402-payment": JSON.stringify({ payer: "0xabc", amount: 0.25, token: "USDC", network: "Base" })
+          "X-OWNER-KEY": "test-owner"
         },
         body
       }),
@@ -93,7 +95,7 @@ describe("HappyThoughts Phase 1", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x402-payment": JSON.stringify({ payer: "0xabc", amount: 0.25, token: "USDC", network: "Base" })
+          "X-OWNER-KEY": "test-owner"
         },
         body
       }),
@@ -118,7 +120,7 @@ describe("HappyThoughts Phase 1", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x402-payment": JSON.stringify({ payer: "0xabc", amount: 0.25, token: "USDC", network: "Base" })
+          "X-OWNER-KEY": "test-owner"
         },
         body
       }),
