@@ -10,50 +10,50 @@ PROFIT_WALLET = "0x170992058429d3d52615fef70c1006f5e5d6467c"
 
 [[kv_namespaces]]
 binding = "PROVIDERS"
-id = ""
-preview_id = ""
+id = "00000000000000000000000000000001"
+preview_id = "00000000000000000000000000000001"
 
 [[kv_namespaces]]
 binding = "SCORES"
-id = ""
-preview_id = ""
+id = "00000000000000000000000000000002"
+preview_id = "00000000000000000000000000000002"
 
 [[kv_namespaces]]
 binding = "THOUGHTS"
-id = ""
-preview_id = ""
+id = "00000000000000000000000000000003"
+preview_id = "00000000000000000000000000000003"
 
 [[kv_namespaces]]
 binding = "CACHE"
-id = ""
-preview_id = ""
+id = "00000000000000000000000000000004"
+preview_id = "00000000000000000000000000000004"
 
 [[kv_namespaces]]
 binding = "BUNDLES"
-id = ""
-preview_id = ""
+id = "00000000000000000000000000000005"
+preview_id = "00000000000000000000000000000005"
 
 [[kv_namespaces]]
 binding = "BUYERS"
-id = ""
-preview_id = ""
+id = "00000000000000000000000000000006"
+preview_id = "00000000000000000000000000000006"
 
 [[kv_namespaces]]
 binding = "FEEDBACK"
-id = ""
-preview_id = ""
+id = "00000000000000000000000000000007"
+preview_id = "00000000000000000000000000000007"
 
 [[kv_namespaces]]
 binding = "FLAGS"
-id = ""
-preview_id = ""
+id = "00000000000000000000000000000008"
+preview_id = "00000000000000000000000000000008"
 
 [[kv_namespaces]]
 binding = "REFERRALS"
-id = ""
-preview_id = ""
+id = "00000000000000000000000000000009"
+preview_id = "00000000000000000000000000000009"
 
 [[kv_namespaces]]
 binding = "AGREEMENTS"
-id = ""
-preview_id = ""
+id = "00000000000000000000000000000010"
+preview_id = "00000000000000000000000000000010"
