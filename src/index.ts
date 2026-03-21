@@ -151,6 +151,90 @@ function validateSpecialties(specialties: string[]): string[] {
   return specialties.filter((s) => !SPECIALTY_LEAVES.has(s));
 }
 
+function parseBool(value: string | null): boolean {
+  if (!value) return false;
+  return ["true", "1", "yes"].includes(value.toLowerCase());
+}
+
+function getDomainMultiplier(specialties: string[]): number {
+  let max = 1.0;
+  for (const spec of specialties) {
+    if (spec.startsWith("legal/")) max = Math.max(max, 3.0);
+    else if (spec.startsWith("medicine/")) max = Math.max(max, 2.5);
+    else if (spec.startsWith("science/")) max = Math.max(max, 2.0);
+    else if (
+      spec.startsWith("trading/") ||
+      spec.startsWith("crypto/") ||
+      spec.startsWith("finance/")
+    )
+      max = Math.max(max, 1.75);
+    else if (spec.startsWith("engineering/") || spec.startsWith("education/"))
+      max = Math.max(max, 1.5);
+  }
+  return max;
+}
+
+function computePrice(happyTrail: number, specialties: string[]): number {
+  const multiplier = getDomainMultiplier(specialties);
+  const base = 0.01 + 0.19 * (happyTrail / 100);
+  return Number((base * multiplier).toFixed(4));
+}
+
+function matchSpecialty(query: string, providerSpecialties: string[]): boolean {
+  const q = query.toLowerCase();
+  return providerSpecialties.some((s) => s.toLowerCase().startsWith(q));
+}
+
+async function handleDiscover(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const specialty = url.searchParams.get("specialty");
+  const minScore = Number(url.searchParams.get("min_score") ?? "0") || 0;
+  const tier = url.searchParams.get("tier");
+  const verifiedOnly = parseBool(url.searchParams.get("verified_only"));
+  const maxPrice = url.searchParams.get("max_price");
+  const limit = Math.min(Number(url.searchParams.get("limit") ?? "10") || 10, 100);
+
+  const list = await env.PROVIDERS.list({ prefix: "provider:" });
+  const providers: any[] = [];
+
+  for (const key of list.keys) {
+    const raw = await env.PROVIDERS.get(key.name);
+    if (!raw) continue;
+    const provider = JSON.parse(raw);
+
+    const scoreRaw = await env.SCORES.get(`score:${provider.id}`);
+    if (!scoreRaw) continue;
+    const score = JSON.parse(scoreRaw);
+
+    if (Array.isArray(score.flags) && score.flags.length > 0) continue;
+    if (specialty && !matchSpecialty(specialty, provider.specialties || [])) continue;
+    if (tier && provider.tier !== tier) continue;
+    if (score.happy_trail < minScore) continue;
+
+    const price = computePrice(score.happy_trail, provider.specialties || []);
+    if (maxPrice && price > Number(maxPrice)) continue;
+
+    const verified = provider.tier === "verified_brain" || provider.tier === "founding_brain";
+    if (verifiedOnly && !verified) continue;
+
+    providers.push({
+      provider_id: provider.id,
+      name: provider.name,
+      specialties: provider.specialties || [],
+      tier: provider.tier,
+      happy_trail: score.happy_trail,
+      price,
+      verified,
+      last_active: score.last_active,
+      total_thoughts: score.total_thoughts
+    });
+  }
+
+  providers.sort((a, b) => b.happy_trail - a.happy_trail);
+
+  return jsonResponse(providers.slice(0, limit));
+}
+
 async function handleRegister(request: Request, env: Env): Promise<Response> {
   const payment = await verifyX402Payment(request, 0.25);
   if (!payment.ok) return payment.response;
@@ -251,6 +335,10 @@ export default {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname === "/register") {
       return handleRegister(request, env);
+    }
+
+    if (request.method === "GET" && url.pathname === "/discover") {
+      return handleDiscover(request, env);
     }
 
     return jsonResponse({ error: "not_found" }, 404);
