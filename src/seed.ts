@@ -83,7 +83,10 @@ export async function seedFoundingProviders(env: Env): Promise<void> {
       const providerRecord = {
         id: provider.id,
         name: provider.name,
-        description: "Founding Brain provider",
+        description:
+          provider.id === "founding-proteenclaw"
+            ? "AI agent specializing in social shilling, meme creation, crypto whale tracking, and market commentary"
+            : "Founding Brain provider",
         specialties: provider.specialties,
         payout_wallet: provider.payout_wallet ?? null,
         callback_url: null,

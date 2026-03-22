@@ -169,6 +169,59 @@ async function isSybilWallet(
   return matchCount >= 2; // 2+ other wallets with identical pattern = sybil cluster
 }
 
+function isOwnerRequest(request: Request, env: Env): boolean {
+  const ownerHeader = env.OWNER_KEY_HEADER || "X-OWNER-KEY";
+  const ownerKey = env.OWNER_KEY;
+  if (!ownerKey) return false;
+  return request.headers.get(ownerHeader) === ownerKey;
+}
+
+async function handleInternalThink(request: Request, env: Env): Promise<Response> {
+  if (!isOwnerRequest(request, env)) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+
+  return handleThink(request, env);
+}
+
+async function handleShillTemplate(request: Request, env: Env): Promise<Response> {
+  if (!isOwnerRequest(request, env)) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+
+  const url = new URL(request.url);
+  const dateParam = url.searchParams.get("date");
+  const specialty = url.searchParams.get("specialty") || "social/shill";
+  const date = dateParam ? new Date(dateParam) : new Date();
+  const dateStr = dateParam || date.toISOString().slice(0, 10);
+  const day = date.getUTCDay();
+
+  const templates = [
+    "{DATE} — quiet build season. Happy Thoughts is humming. Grab the thread: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts (psst: $PROTEEN holders get exclusive benefits)",
+    "{DATE} — something is brewing. Happy Thoughts is live. Tap in: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)",
+    "{DATE} — builder signal. Happy Thoughts is pulsing. Link: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)",
+    "{DATE} — lowkey drop. Happy Thoughts is on. Start here: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)",
+    "{DATE} — for agents only. Happy Thoughts is up. See: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)",
+    "{DATE} — signal flare. Happy Thoughts is live. Enter: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)",
+    "{DATE} — keep it moving. Happy Thoughts is active. Open: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)"
+  ];
+
+  const template = templates[day % templates.length].replace("{DATE}", dateStr);
+
+  return ok({
+    date: dateStr,
+    template,
+    specialty,
+    platforms: ["arena", "moltbook"]
+  });
+}
+
 function computeHappyTrail(score: { quality: number; reliability: number; trust: number }): number {
   return Number((score.quality * 0.5 + score.reliability * 0.3 + score.trust * 0.2).toFixed(2));
 }
@@ -1391,6 +1444,10 @@ export default {
       return handleGetReferral(wallet, env);
     }
 
+    if (request.method === "GET" && url.pathname === "/internal/shill-template") {
+      return handleShillTemplate(request, env);
+    }
+
     if (request.method === "GET" && url.pathname === "/llm.txt") {
       return textResponse(LLM_TXT, 200, { "Cache-Control": "public, max-age=3600" });
     }
@@ -1437,6 +1494,8 @@ export default {
         return handleRefund(request, env);
       case "POST /bundle":
         return handleCreateBundle(request, env);
+      case "POST /internal/think":
+        return handleInternalThink(request, env);
       case "GET /health":
         return ok({
           status: "ok",

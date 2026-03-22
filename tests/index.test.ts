@@ -1243,3 +1243,47 @@ describe("HappyThoughts Phase 5", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("HappyThoughts Phase 7", () => {
+  it("POST /internal/think — owner bypass", async () => {
+    const env = makeEnv();
+    env.OWNER_KEY = "test-owner";
+    await seedProvider(env, "prov_internal");
+
+    const res = await worker.fetch(
+      new Request("https://test/internal/think", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify({
+          prompt: "Test prompt",
+          specialty: "trading/signals",
+          buyer_wallet: "0xbuyer"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.thought_id).toBeTruthy();
+  });
+
+  it("GET /internal/shill-template — returns template", async () => {
+    const env = makeEnv();
+    env.OWNER_KEY = "test-owner";
+
+    const res = await worker.fetch(
+      new Request("https://test/internal/shill-template?date=2026-03-22&specialty=social/shill", {
+        headers: { "X-OWNER-KEY": "test-owner" }
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.date).toBe("2026-03-22");
+    expect(json.platforms).toContain("arena");
+  });
+});
