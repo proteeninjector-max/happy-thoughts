@@ -1,4 +1,5 @@
 import { verifyX402Payment } from "./middleware/payment";
+import { getDomainDisclaimer } from "./constants/disclaimers";
 
 const SPECIALTY_LEAVES = new Set([
   "trading/signals",
@@ -120,6 +121,245 @@ function computePrice(happyTrail: number, specialties: string[]): number {
 function matchSpecialty(query: string, providerSpecialties: string[]): boolean {
   const q = query.toLowerCase();
   return providerSpecialties.some((s) => s.toLowerCase().startsWith(q));
+}
+
+function normalizePrompt(prompt: string): string {
+  return prompt
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function getCacheTtlMs(specialty: string): number {
+  if (specialty.startsWith("trading/") || specialty.startsWith("crypto/")) {
+    return 72 * 60 * 60 * 1000;
+  }
+  return 30 * 24 * 60 * 60 * 1000;
+}
+
+async function classifySpecialty(prompt: string, env: Env): Promise<string> {
+  const apiKey = env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY not configured");
+  }
+
+  const model = env.ANTHROPIC_MODEL || "claude-3-haiku-20240307";
+  const leaves = Array.from(SPECIALTY_LEAVES).join(", ");
+
+  const system =
+    "You are a strict classifier. Return exactly one specialty leaf from the allowed list.";
+  const user = `Classify the prompt into one specialty leaf from this list. Return ONLY the leaf string.\n\nList: ${leaves}\n\nPrompt:\n${prompt}`;
+
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 64,
+      system,
+      messages: [{ role: "user", content: user }]
+    })
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Anthropic classification failed: ${resp.status}`);
+  }
+
+  const json: any = await resp.json();
+  const text =
+    json?.content?.[0]?.text?.trim?.() ||
+    json?.content?.[0]?.text ||
+    "";
+
+  const candidate = text.split(/\s+/)[0]?.trim();
+  if (candidate && SPECIALTY_LEAVES.has(candidate)) return candidate;
+  return "other/general";
+}
+
+async function handleThink(request: Request, env: Env): Promise<Response> {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
+  const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
+  const minConfidence = Number(body?.min_confidence ?? "0") || 0;
+  let specialty = typeof body?.specialty === "string" ? body.specialty.trim() : "";
+
+  if (!prompt) return badRequest("prompt is required");
+  if (!buyerWallet) return badRequest("buyer_wallet is required");
+
+  if (!specialty) {
+    try {
+      specialty = await classifySpecialty(prompt, env);
+    } catch (err: any) {
+      return badRequest("specialty classification failed", { error: err?.message });
+    }
+  }
+
+  if (!SPECIALTY_LEAVES.has(specialty)) {
+    return badRequest("unknown specialty", { specialty });
+  }
+
+  const promptHash = await sha256Hex(normalizePrompt(prompt));
+  const cacheKey = `cache:${promptHash}`;
+  const cachedRaw = await env.CACHE.get(cacheKey);
+
+  if (cachedRaw) {
+    const cached = JSON.parse(cachedRaw);
+    const cachedAt = cached?.created_at ? new Date(cached.created_at).getTime() : 0;
+    const ttlMs = getCacheTtlMs(cached.specialty || specialty);
+    if (cachedAt && Date.now() - cachedAt <= ttlMs) {
+      const cachedPrice = Number((cached.price_paid * 0.6).toFixed(4));
+      const payment = await verifyX402Payment(
+        request,
+        env,
+        cachedPrice,
+        "Happy Thoughts cached thought"
+      );
+      if (!payment.ok) return payment.response;
+
+      const thoughtId = `ht_${crypto.randomUUID()}`;
+      const disclaimer = getDomainDisclaimer(cached.specialty || specialty);
+
+      const thoughtRecord = {
+        thought_id: thoughtId,
+        prompt_hash: promptHash,
+        provider_id: cached.provider_id,
+        specialty: cached.specialty || specialty,
+        response: cached.response,
+        disclaimer,
+        cached: true,
+        parent_thought_id: cached.thought_id || null,
+        timestamp: new Date().toISOString(),
+        buyer_wallet: buyerWallet,
+        price_paid: cachedPrice,
+        confidence: cached.confidence ?? 0,
+        revenue_split: {
+          broker_wallet: env.PROFIT_WALLET,
+          broker_amount: Number((cachedPrice * 0.3).toFixed(4)),
+          provider_wallet: cached.provider_wallet || null,
+          provider_amount: Number((cachedPrice * 0.7).toFixed(4))
+        }
+      };
+
+      await env.THOUGHTS.put(`thought:${thoughtId}`, JSON.stringify(thoughtRecord));
+
+      return ok({
+        thought_id: thoughtId,
+        thought: cached.response,
+        provider_id: cached.provider_id,
+        provider_score: cached.provider_score ?? null,
+        specialty: cached.specialty || specialty,
+        price_paid: cachedPrice,
+        cached: true,
+        confidence: thoughtRecord.confidence,
+        parent_thought_id: thoughtRecord.parent_thought_id,
+        disclaimer
+      });
+    }
+  }
+
+  const list = await env.PROVIDERS.list({ prefix: "provider:" });
+  const candidates: any[] = [];
+
+  for (const key of list.keys) {
+    const raw = await env.PROVIDERS.get(key.name);
+    if (!raw) continue;
+    const provider = JSON.parse(raw);
+
+    if (!matchSpecialty(specialty, provider.specialties || [])) continue;
+
+    const scoreRaw = await env.SCORES.get(`score:${provider.id}`);
+    if (!scoreRaw) continue;
+    const score = JSON.parse(scoreRaw);
+
+    if (Array.isArray(score.flags) && score.flags.length > 0) continue;
+
+    candidates.push({ provider, score });
+  }
+
+  if (candidates.length === 0) {
+    return jsonResponse({ error: "no_providers", message: "No providers available" }, 404);
+  }
+
+  candidates.sort((a, b) => b.score.happy_trail - a.score.happy_trail);
+  const selected = candidates[0];
+  const provider = selected.provider;
+  const score = selected.score;
+
+  const price = computePrice(score.happy_trail, provider.specialties || []);
+  const payment = await verifyX402Payment(request, env, price, "Happy Thoughts thought");
+  if (!payment.ok) return payment.response;
+
+  const confidence = Math.max(0, Math.min(1, score.happy_trail / 100));
+  const thought = provider.description || `Thought from ${provider.name}`;
+  const thoughtId = `ht_${crypto.randomUUID()}`;
+  const disclaimer = getDomainDisclaimer(specialty);
+
+  const thoughtRecord = {
+    thought_id: thoughtId,
+    prompt_hash: promptHash,
+    provider_id: provider.id,
+    specialty,
+    response: thought,
+    disclaimer,
+    cached: false,
+    parent_thought_id: null,
+    timestamp: new Date().toISOString(),
+    buyer_wallet: buyerWallet,
+    price_paid: price,
+    confidence,
+    provider_score: score.happy_trail,
+    revenue_split: {
+      broker_wallet: env.PROFIT_WALLET,
+      broker_amount: Number((price * 0.3).toFixed(4)),
+      provider_wallet: provider.payout_wallet || null,
+      provider_amount: Number((price * 0.7).toFixed(4))
+    }
+  };
+
+  await env.THOUGHTS.put(`thought:${thoughtId}`, JSON.stringify(thoughtRecord));
+
+  const cacheRecord = {
+    thought_id: thoughtId,
+    response: thought,
+    provider_id: provider.id,
+    provider_wallet: provider.payout_wallet || null,
+    provider_score: score.happy_trail,
+    specialty,
+    price_paid: price,
+    confidence,
+    created_at: thoughtRecord.timestamp
+  };
+  await env.CACHE.put(cacheKey, JSON.stringify(cacheRecord));
+
+  return ok({
+    thought_id: thoughtId,
+    thought,
+    provider_id: provider.id,
+    provider_score: score.happy_trail,
+    specialty,
+    price_paid: price,
+    cached: false,
+    confidence,
+    parent_thought_id: null,
+    disclaimer
+  });
 }
 
 async function handleDiscover(request: Request, env: Env): Promise<Response> {
@@ -275,6 +515,8 @@ export default {
     switch (routeKey) {
       case "POST /register":
         return handleRegister(request, env);
+      case "POST /think":
+        return handleThink(request, env);
       case "GET /health":
         return ok({
           status: "ok",
@@ -306,4 +548,6 @@ export interface Env {
   X402_FACILITATOR_URL?: string;
   X402_NETWORK?: string;
   X402_ASSET?: string;
+  ANTHROPIC_API_KEY?: string;
+  ANTHROPIC_MODEL?: string;
 }
