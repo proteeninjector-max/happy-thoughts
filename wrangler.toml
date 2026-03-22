@@ -7,6 +7,14 @@ workers_dev = true
 [vars]
 # PLACEHOLDER — set in deployment environment
 PROFIT_WALLET = "0x170992058429d3d52615fef70c1006f5e5d6467c"
+OWNER_KEY_HEADER = "X-OWNER-KEY"
+X402_FACILITATOR_URL = "https://x402.org/facilitator"
+X402_NETWORK = "eip155:8453"
+X402_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+# Secrets (set via `wrangler secret put`)
+# OWNER_KEY
+# ANTHROPIC_API_KEY
 
 [[kv_namespaces]]
 binding = "PROVIDERS"
