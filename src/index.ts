@@ -747,6 +747,78 @@ async function handleRoute(request: Request, env: Env): Promise<Response> {
   });
 }
 
+async function handleLeaderboard(request: Request, env: Env): Promise<Response> {
+  const list = await env.PROVIDERS.list({ prefix: "provider:" });
+  const rows: any[] = [];
+
+  for (const key of list.keys) {
+    const raw = await env.PROVIDERS.get(key.name);
+    if (!raw) continue;
+    const provider = JSON.parse(raw);
+
+    const scoreRaw = await env.SCORES.get(`score:${provider.id}`);
+    if (!scoreRaw) continue;
+    const score = JSON.parse(scoreRaw);
+
+    if (Array.isArray(score.flags) && score.flags.length > 0) continue;
+
+    rows.push({ provider, score });
+  }
+
+  const toEntry = (row: any) => ({
+    provider_id: row.provider.id,
+    name: row.provider.name,
+    tier: row.score.tier || row.provider.tier,
+    happy_trail: row.score.happy_trail,
+    specialties: row.provider.specialties || [],
+    total_thoughts: row.score.total_thoughts || 0
+  });
+
+  const topThinkers = rows
+    .slice()
+    .sort((a, b) => b.score.happy_trail - a.score.happy_trail)
+    .slice(0, 10)
+    .map(toEntry);
+
+  const mostProductive = rows
+    .slice()
+    .sort((a, b) => (b.score.total_thoughts || 0) - (a.score.total_thoughts || 0))
+    .slice(0, 10)
+    .map(toEntry);
+
+  const cultClassics = rows
+    .filter((r) => (r.score.reuse_rate ?? null) !== null)
+    .slice()
+    .sort((a, b) => (b.score.reuse_rate || 0) - (a.score.reuse_rate || 0))
+    .slice(0, 10)
+    .map(toEntry);
+
+  const weeklyMover = rows
+    .filter((r) => r.score.weekly_delta !== undefined && r.score.weekly_delta !== null)
+    .slice()
+    .sort((a, b) => (b.score.weekly_delta || 0) - (a.score.weekly_delta || 0))
+    .slice(0, 10)
+    .map(toEntry);
+
+  const risingStars = rows
+    .filter((r) => (r.score.active_days || 0) < 30)
+    .slice()
+    .sort((a, b) => b.score.happy_trail - a.score.happy_trail)
+    .slice(0, 10)
+    .map(toEntry);
+
+  return ok({
+    updated_at: new Date().toISOString(),
+    boards: {
+      top_thinkers: topThinkers,
+      most_productive: mostProductive,
+      cult_classics: cultClassics,
+      weekly_mover: weeklyMover,
+      rising_stars: risingStars
+    }
+  });
+}
+
 async function handleRegister(request: Request, env: Env): Promise<Response> {
   const payment = await verifyX402Payment(request, env, 0.25, "Happy Thoughts registration");
   if (!payment.ok) return payment.response;
@@ -870,6 +942,8 @@ export default {
         return handleDiscover(request, env);
       case "GET /route":
         return handleRoute(request, env);
+      case "GET /leaderboard":
+        return handleLeaderboard(request, env);
       default:
         return notFound();
     }
