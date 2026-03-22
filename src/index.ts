@@ -2,6 +2,7 @@ import { verifyX402Payment } from "./middleware/payment";
 import { getDomainDisclaimer } from "./constants/disclaimers";
 import { LEGAL_AUP, LEGAL_PRIVACY, LEGAL_PROVIDER_AGREEMENT, LEGAL_TOS } from "./constants/legal";
 import { loadScore, updateScore, saveScore } from "./scoring";
+import { runDecay } from "./decay";
 
 const SPECIALTY_LEAVES = new Set([
   "trading/signals",
@@ -1116,6 +1117,9 @@ export default {
       default:
         return notFound();
     }
+  },
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runDecay(env));
   }
 };
 
