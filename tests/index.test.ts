@@ -1054,3 +1054,192 @@ describe("HappyThoughts Phase 4", () => {
     expect(updated.frozen_until).toBeTruthy();
   });
 });
+
+describe("HappyThoughts Phase 5", () => {
+  it("POST /bundle — success", async () => {
+    const env = makeEnv();
+    const { provider } = await seedProvider(env, "prov_bundle");
+
+    await env.THOUGHTS.put(
+      "thought:bundle1",
+      JSON.stringify({
+        thought_id: "bundle1",
+        provider_id: provider.id,
+        buyer_wallet: "0xbuyer",
+        response: "ok"
+      })
+    );
+    await env.THOUGHTS.put(
+      "thought:bundle2",
+      JSON.stringify({
+        thought_id: "bundle2",
+        provider_id: provider.id,
+        buyer_wallet: "0xbuyer",
+        response: "ok"
+      })
+    );
+
+    const res = await worker.fetch(
+      new Request("https://test/bundle", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider_id: provider.id,
+          name: "Starter Bundle",
+          thought_ids: ["bundle1", "bundle2"],
+          price_usdc: 0.1,
+          description: "Two thoughts"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.bundle_id).toBeTruthy();
+    expect(json.provider_earning).toBe(0.07);
+    expect(json.broker_earning).toBe(0.03);
+  });
+
+  it("POST /bundle — too many thoughts", async () => {
+    const env = makeEnv();
+    const { provider } = await seedProvider(env, "prov_bundle2");
+
+    const thoughtIds = Array.from({ length: 11 }, (_, i) => `t${i}`);
+    const res = await worker.fetch(
+      new Request("https://test/bundle", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider_id: provider.id,
+          name: "Big Bundle",
+          thought_ids: thoughtIds,
+          price_usdc: 0.2,
+          description: "Too many"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(JSON.stringify(json)).toMatch(/limited to 10/i);
+  });
+
+  it("POST /bundle — unknown thought", async () => {
+    const env = makeEnv();
+    const { provider } = await seedProvider(env, "prov_bundle3");
+
+    const res = await worker.fetch(
+      new Request("https://test/bundle", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider_id: provider.id,
+          name: "Missing Thought",
+          thought_ids: ["missing"],
+          price_usdc: 0.1,
+          description: "Missing"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(JSON.stringify(json)).toMatch(/unknown thought_id/i);
+  });
+
+  it("POST /bundle — thought belongs to different provider", async () => {
+    const env = makeEnv();
+    const { provider } = await seedProvider(env, "prov_bundle4");
+
+    await env.THOUGHTS.put(
+      "thought:other",
+      JSON.stringify({
+        thought_id: "other",
+        provider_id: "other_provider",
+        buyer_wallet: "0xbuyer",
+        response: "ok"
+      })
+    );
+
+    const res = await worker.fetch(
+      new Request("https://test/bundle", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider_id: provider.id,
+          name: "Mismatch",
+          thought_ids: ["other"],
+          price_usdc: 0.1,
+          description: "Mismatch"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(400);
+  });
+
+  it("GET /bundle/:id — success", async () => {
+    const env = makeEnv();
+    const bundleId = "bundle_123";
+    await env.BUNDLES.put(
+      `bundle:${bundleId}`,
+      JSON.stringify({
+        bundle_id: bundleId,
+        provider_id: "prov_bundle5",
+        name: "Bundle",
+        thought_ids: ["a"],
+        thought_count: 1,
+        price_usdc: 0.1,
+        provider_earning: 0.07,
+        broker_earning: 0.03,
+        profit_wallet: env.PROFIT_WALLET,
+        created_at: new Date().toISOString(),
+        active: true
+      })
+    );
+
+    const res = await worker.fetch(new Request(`https://test/bundle/${bundleId}`), env, {} as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.bundle_id).toBe(bundleId);
+  });
+
+  it("GET /bundle/:id — not found", async () => {
+    const env = makeEnv();
+    const res = await worker.fetch(new Request("https://test/bundle/nonexistent"), env, {} as any);
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /referral/:wallet — success", async () => {
+    const env = makeEnv();
+    const wallet = "0xref";
+    await env.REFERRALS.put(
+      `referral:${wallet}`,
+      JSON.stringify({
+        referral_code: wallet,
+        referrals: [{ provider_id: "prov1", wallet: "0xabc", referred_at: new Date().toISOString() }],
+        total_referred: 1,
+        created_at: new Date().toISOString()
+      })
+    );
+
+    const res = await worker.fetch(new Request(`https://test/referral/${wallet}`), env, {} as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.total_referred).toBe(1);
+  });
+
+  it("GET /referral/:wallet — not found", async () => {
+    const env = makeEnv();
+    const res = await worker.fetch(new Request("https://test/referral/unknownwallet"), env, {} as any);
+    expect(res.status).toBe(404);
+  });
+});

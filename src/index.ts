@@ -884,6 +884,109 @@ async function handleRefund(request: Request, env: Env): Promise<Response> {
   });
 }
 
+async function handleCreateBundle(request: Request, env: Env): Promise<Response> {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const providerId = typeof body?.provider_id === "string" ? body.provider_id.trim() : "";
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const thoughtIds: string[] = Array.isArray(body?.thought_ids) ? body.thought_ids : [];
+  const priceUsdc = typeof body?.price_usdc === "number" ? body.price_usdc : null;
+  const description = typeof body?.description === "string" ? body.description.trim() : "";
+
+  if (!providerId) return badRequest("provider_id is required");
+  if (!name) return badRequest("name is required");
+  if (thoughtIds.length === 0) return badRequest("thought_ids must be a non-empty array");
+  if (thoughtIds.length > 10) return badRequest("bundles are limited to 10 thoughts");
+  if (priceUsdc === null || priceUsdc < 0.01) return badRequest("price_usdc must be >= 0.01");
+
+  // Verify provider exists
+  const providerRaw = await env.PROVIDERS.get(`provider:${providerId}`);
+  if (!providerRaw) return badRequest("unknown provider_id");
+
+  // Verify all thought_ids exist and belong to this provider
+  const thoughts = [] as any[];
+  for (const tid of thoughtIds) {
+    const raw = await env.THOUGHTS.get(`thought:${tid}`);
+    if (!raw) return badRequest(`unknown thought_id: ${tid}`);
+    const thought = JSON.parse(raw);
+    if (thought.provider_id !== providerId) {
+      return badRequest(`thought ${tid} does not belong to provider ${providerId}`);
+    }
+    thoughts.push(thought);
+  }
+
+  const bundleId = `bundle_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+
+  const providerEarning = round2(priceUsdc * 0.7);
+  const brokerEarning = round2(priceUsdc * 0.3);
+
+  const bundle = {
+    bundle_id: bundleId,
+    provider_id: providerId,
+    name,
+    description,
+    thought_ids: thoughtIds,
+    thought_count: thoughtIds.length,
+    price_usdc: priceUsdc,
+    provider_earning: providerEarning,
+    broker_earning: brokerEarning,
+    profit_wallet: env.PROFIT_WALLET,
+    created_at: now,
+    active: true
+  };
+
+  await env.BUNDLES.put(`bundle:${bundleId}`, JSON.stringify(bundle));
+
+  return ok({
+    bundle_id: bundleId,
+    name,
+    thought_count: thoughtIds.length,
+    price_usdc: priceUsdc,
+    provider_earning: providerEarning,
+    broker_earning: brokerEarning,
+    created_at: now
+  });
+}
+
+async function handleGetBundle(id: string, env: Env): Promise<Response> {
+  const raw = await env.BUNDLES.get(`bundle:${id}`);
+  if (!raw)
+    return new Response(JSON.stringify({ error: "bundle not found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" }
+    });
+
+  const bundle = JSON.parse(raw);
+
+  // Enrich with current provider score
+  const score = await loadScore(bundle.provider_id, env);
+
+  return ok({
+    ...bundle,
+    provider_happy_trail: score?.happy_trail ?? null,
+    provider_tier: score?.tier ?? null
+  });
+}
+
+async function handleGetReferral(wallet: string, env: Env): Promise<Response> {
+  const referralKey = `referral:${wallet}`;
+  const raw = await env.REFERRALS.get(referralKey);
+  if (!raw)
+    return new Response(JSON.stringify({ error: "no referral record found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" }
+    });
+
+  const record = JSON.parse(raw);
+  return ok(record);
+}
+
 async function handleScore(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const providerId = url.pathname.split("/")[2];
@@ -1115,19 +1218,32 @@ async function handleLeaderboard(request: Request, env: Env): Promise<Response> 
     .slice(0, 10)
     .map(toEntry);
 
+  // weekly_mover: sort by weekly_delta DESC, top 10
   const weeklyMover = rows
-    .filter((r) => r.score.weekly_delta !== undefined && r.score.weekly_delta !== null)
-    .slice()
-    .sort((a, b) => (b.score.weekly_delta || 0) - (a.score.weekly_delta || 0))
+    .filter(({ score }) => score.weekly_delta > 0)
+    .sort((a, b) => b.score.weekly_delta - a.score.weekly_delta)
     .slice(0, 10)
-    .map(toEntry);
+    .map(({ provider, score }) => ({
+      provider_id: provider.provider_id,
+      name: provider.name,
+      weekly_delta: score.weekly_delta,
+      happy_trail: score.happy_trail,
+      tier: score.tier
+    }));
 
+  // rising_stars: registered within 30 days, sort by happy_trail DESC, top 10
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 3600 * 1000;
   const risingStars = rows
-    .filter((r) => (r.score.active_days || 0) < 30)
-    .slice()
+    .filter(({ score }) => score.created_at >= thirtyDaysAgo && !score.hidden)
     .sort((a, b) => b.score.happy_trail - a.score.happy_trail)
     .slice(0, 10)
-    .map(toEntry);
+    .map(({ provider, score }) => ({
+      provider_id: provider.provider_id,
+      name: provider.name,
+      happy_trail: score.happy_trail,
+      tier: score.tier,
+      days_old: Math.floor((Date.now() - score.created_at) / 86_400_000)
+    }));
 
   return ok({
     updated_at: new Date().toISOString(),
@@ -1214,15 +1330,34 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   await env.AGREEMENTS.put(`agreement:${payment.payer}`, JSON.stringify(agreementRecord));
   await env.PROVIDERS.put(`stake:${provider_id}`, JSON.stringify(stakeRecord));
 
-  if (referral_code) {
-    await env.REFERRALS.put(
-      `referral:${referral_code}`,
-      JSON.stringify({
-        referred_provider_id: provider_id,
-        referring_wallet: null,
-        created_at: timestamp
-      })
-    );
+  // Referral tracking
+  if (body.referral_code) {
+    const referralKey = `referral:${body.referral_code}`;
+    const existingRaw = await env.REFERRALS.get(referralKey);
+    const referralRecord = existingRaw
+      ? JSON.parse(existingRaw)
+      : {
+          referral_code: body.referral_code,
+          referrals: [],
+          total_referred: 0,
+          created_at: new Date().toISOString()
+        };
+    referralRecord.referrals.push({
+      provider_id: provider_id,
+      wallet: body.wallet,
+      referred_at: new Date().toISOString()
+    });
+    referralRecord.total_referred = referralRecord.referrals.length;
+    await env.REFERRALS.put(referralKey, JSON.stringify(referralRecord));
+
+    // Give referred provider a score bump: start at 50 instead of 40
+    const score = await loadScore(provider_id, env);
+    if (score && score.quality < 50) {
+      score.quality = 50;
+      score.happy_trail = round2(score.quality * 0.5 + score.reliability * 0.3 + score.trust * 0.2);
+      await saveScore(score, env);
+      console.log(`[REFERRAL] ${provider_id} referred by ${body.referral_code} — score bumped to 50`);
+    }
   }
 
   return jsonResponse(
@@ -1243,6 +1378,16 @@ export default {
 
     if (request.method === "GET" && url.pathname.startsWith("/score/")) {
       return handleScore(request, env);
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/bundle/")) {
+      const id = url.pathname.slice("/bundle/".length);
+      return handleGetBundle(id, env);
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/referral/")) {
+      const wallet = url.pathname.slice("/referral/".length);
+      return handleGetReferral(wallet, env);
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/legal/")) {
@@ -1271,6 +1416,8 @@ export default {
         return handleDispute(request, env);
       case "POST /refund":
         return handleRefund(request, env);
+      case "POST /bundle":
+        return handleCreateBundle(request, env);
       case "GET /health":
         return ok({
           status: "ok",
