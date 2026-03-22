@@ -1,6 +1,7 @@
 import { verifyX402Payment } from "./middleware/payment";
 import { getDomainDisclaimer } from "./constants/disclaimers";
 import { LEGAL_AUP, LEGAL_PRIVACY, LEGAL_PROVIDER_AGREEMENT, LEGAL_TOS } from "./constants/legal";
+import { loadScore, updateScore, saveScore } from "./scoring";
 
 const SPECIALTY_LEAVES = new Set([
   "trading/signals",
@@ -124,6 +125,10 @@ function computePrice(happyTrail: number, specialties: string[]): number {
   const multiplier = getDomainMultiplier(specialties);
   const base = 0.01 + 0.19 * (happyTrail / 100);
   return Number((base * multiplier).toFixed(4));
+}
+
+function round2(v: number) {
+  return Number(v.toFixed(2));
 }
 
 function computeHappyTrail(score: { quality: number; reliability: number; trust: number }): number {
@@ -255,6 +260,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
 
       const thoughtId = `ht_${crypto.randomUUID()}`;
       const disclaimer = getDomainDisclaimer(cached.specialty || specialty);
+      const response_time_ms = 0;
 
       const thoughtRecord = {
         thought_id: thoughtId,
@@ -269,6 +275,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         buyer_wallet: buyerWallet,
         price_paid: cachedPrice,
         confidence: cached.confidence ?? 0,
+        response_time_ms,
         revenue_split: {
           broker_wallet: env.PROFIT_WALLET,
           broker_amount: Number((cachedPrice * 0.3).toFixed(4)),
@@ -278,6 +285,60 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       };
 
       await env.THOUGHTS.put(`thought:${thoughtId}`, JSON.stringify(thoughtRecord));
+
+      // --- Phase 3 score updates from /think ---
+      const provider_id = cached.provider_id;
+      const cached_flag = true;
+      const buyer_wallet = buyerWallet;
+      const providerScore = await loadScore(provider_id, env);
+      if (providerScore) {
+        let updatedScore = providerScore;
+
+        // 1. Reuse rate: increment total_cached if this was a cache hit
+        if (cached_flag) {
+          updatedScore.total_cached = (updatedScore.total_cached || 0) + 1;
+          updatedScore.reuse_rate =
+            updatedScore.total_thoughts > 0 ? round2(updatedScore.total_cached / updatedScore.total_thoughts) : 0;
+          updatedScore = updateScore(updatedScore, { type: "cache_reuse" }, env);
+        }
+
+        // 2. Returning buyer bonus: check BUYERS KV for prior purchases from this provider
+        const buyerKey = `buyer:${buyer_wallet}:${provider_id}`;
+        const priorPurchase = await env.BUYERS.get(buyerKey);
+        let buyerRecord: any = null;
+        if (priorPurchase) {
+          // Returning buyer — check if bonus already applied for this buyer
+          buyerRecord = JSON.parse(priorPurchase);
+          if (!buyerRecord.bonus_applied) {
+            updatedScore = updateScore(updatedScore, { type: "returning_buyer" }, env);
+            buyerRecord.bonus_applied = true;
+            await env.BUYERS.put(buyerKey, JSON.stringify(buyerRecord));
+          }
+        }
+
+        // Write/update buyer record regardless
+        const buyerData = priorPurchase
+          ? JSON.parse(priorPurchase)
+          : { first_purchase: Date.now(), bonus_applied: false };
+        buyerData.bonus_applied = buyerRecord?.bonus_applied ?? buyerData.bonus_applied;
+        buyerData.last_purchase = Date.now();
+        buyerData.total_purchases = (buyerData.total_purchases || 0) + 1;
+        await env.BUYERS.put(buyerKey, JSON.stringify(buyerData));
+
+        // 3. SLA tracking: compare response_time_ms to provider's stated SLA
+        const providerRaw = await env.PROVIDERS.get(`provider:${provider_id}`);
+        if (providerRaw && typeof response_time_ms === "number") {
+          const providerRecord = JSON.parse(providerRaw);
+          const sla = providerRecord.sla_ms ?? 5000;
+          if (response_time_ms <= sla) {
+            updatedScore = updateScore(updatedScore, { type: "sla_met" }, env);
+          } else if (response_time_ms >= sla * 2) {
+            updatedScore = updateScore(updatedScore, { type: "sla_exceeded_2x" }, env);
+          }
+        }
+
+        await saveScore(updatedScore, env);
+      }
 
       return ok({
         thought_id: thoughtId,
@@ -327,7 +388,9 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   if (!payment.ok) return payment.response;
 
   const confidence = Math.max(0, Math.min(1, score.happy_trail / 100));
+  const t0 = Date.now();
   const thought = provider.description || `Thought from ${provider.name}`;
+  const response_time_ms = Date.now() - t0;
   const thoughtId = `ht_${crypto.randomUUID()}`;
   const disclaimer = getDomainDisclaimer(specialty);
 
@@ -344,6 +407,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     buyer_wallet: buyerWallet,
     price_paid: price,
     confidence,
+    response_time_ms,
     provider_score: score.happy_trail,
     revenue_split: {
       broker_wallet: env.PROFIT_WALLET,
@@ -354,6 +418,60 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   };
 
   await env.THOUGHTS.put(`thought:${thoughtId}`, JSON.stringify(thoughtRecord));
+
+  // --- Phase 3 score updates from /think ---
+  const provider_id = provider.id;
+  const cached_flag = false;
+  const buyer_wallet = buyerWallet;
+  const providerScore = await loadScore(provider_id, env);
+  if (providerScore) {
+    let updatedScore = providerScore;
+
+    // 1. Reuse rate: increment total_cached if this was a cache hit
+    if (cached_flag) {
+      updatedScore.total_cached = (updatedScore.total_cached || 0) + 1;
+      updatedScore.reuse_rate =
+        updatedScore.total_thoughts > 0 ? round2(updatedScore.total_cached / updatedScore.total_thoughts) : 0;
+      updatedScore = updateScore(updatedScore, { type: "cache_reuse" }, env);
+    }
+
+    // 2. Returning buyer bonus: check BUYERS KV for prior purchases from this provider
+    const buyerKey = `buyer:${buyer_wallet}:${provider_id}`;
+    const priorPurchase = await env.BUYERS.get(buyerKey);
+    let buyerRecord: any = null;
+    if (priorPurchase) {
+      // Returning buyer — check if bonus already applied for this buyer
+      buyerRecord = JSON.parse(priorPurchase);
+      if (!buyerRecord.bonus_applied) {
+        updatedScore = updateScore(updatedScore, { type: "returning_buyer" }, env);
+        buyerRecord.bonus_applied = true;
+        await env.BUYERS.put(buyerKey, JSON.stringify(buyerRecord));
+      }
+    }
+
+    // Write/update buyer record regardless
+    const buyerData = priorPurchase
+      ? JSON.parse(priorPurchase)
+      : { first_purchase: Date.now(), bonus_applied: false };
+    buyerData.bonus_applied = buyerRecord?.bonus_applied ?? buyerData.bonus_applied;
+    buyerData.last_purchase = Date.now();
+    buyerData.total_purchases = (buyerData.total_purchases || 0) + 1;
+    await env.BUYERS.put(buyerKey, JSON.stringify(buyerData));
+
+    // 3. SLA tracking: compare response_time_ms to provider's stated SLA
+    const providerRaw = await env.PROVIDERS.get(`provider:${provider_id}`);
+    if (providerRaw && typeof response_time_ms === "number") {
+      const providerRecord = JSON.parse(providerRaw);
+      const sla = providerRecord.sla_ms ?? 5000;
+      if (response_time_ms <= sla) {
+        updatedScore = updateScore(updatedScore, { type: "sla_met" }, env);
+      } else if (response_time_ms >= sla * 2) {
+        updatedScore = updateScore(updatedScore, { type: "sla_exceeded_2x" }, env);
+      }
+    }
+
+    await saveScore(updatedScore, env);
+  }
 
   const cacheRecord = {
     thought_id: thoughtId,
@@ -429,12 +547,8 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
     return badRequest("rate limit: max 1 rating per provider per 24h");
   }
 
-  const scoreRaw = await env.SCORES.get(`score:${providerId}`);
-  if (!scoreRaw) return badRequest("provider score not found");
-
-  const providerRaw = await env.PROVIDERS.get(`provider:${providerId}`);
-  const provider = providerRaw ? JSON.parse(providerRaw) : null;
-  const score = JSON.parse(scoreRaw);
+  let score = await loadScore(providerId, env);
+  if (!score) return new Response(JSON.stringify({ error: "provider score not found" }), { status: 404 });
 
   const happyWindowKey = `feedback:provider:${providerId}:happy_window`;
   let happyWindow: number[] = [];
@@ -452,45 +566,21 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
     }
   }
 
-  let qualityDelta = 0;
   if (!held) {
     if (rating === "happy") {
-      qualityDelta = thought.challenger ? 4 : 2;
+      const isChallenger = thought?.challenger === true;
+      score = updateScore(score, isChallenger ? { type: "challenger_happy" } : { type: "happy_rating" }, env);
     } else if (rating === "sad") {
-      qualityDelta = -3;
+      score = updateScore(score, { type: "sad_rating" }, env);
     }
 
     if (tag === "hallucinated") {
-      qualityDelta += -5;
-      score.flags = Array.isArray(score.flags) ? score.flags : [];
-      if (!score.flags.includes("yellow_flag")) score.flags.push("yellow_flag");
+      score = updateScore(score, { type: "hallucinated", verified_buyer: true }, env);
     }
 
-    const today = new Date().toISOString().slice(0, 10);
-    if (qualityDelta > 0) {
-      if (score.daily_delta_date !== today) {
-        score.daily_delta_date = today;
-        score.daily_delta = 0;
-      }
-      const remaining = Math.max(0, 3 - (score.daily_delta || 0));
-      const applied = Math.min(qualityDelta, remaining);
-      qualityDelta = applied;
-      score.daily_delta = (score.daily_delta || 0) + applied;
-    }
-
-    score.quality = Number((score.quality + qualityDelta).toFixed(2));
-    score.rated_thoughts = (score.rated_thoughts || 0) + 1;
-
-    const happyCount = (score.happy_count || 0) + (rating === "happy" ? 1 : 0);
-    const sadCount = (score.sad_count || 0) + (rating === "sad" ? 1 : 0);
-    score.happy_count = happyCount;
-    score.sad_count = sadCount;
-    const totalRated = happyCount + sadCount;
-    score.happy_rate = totalRated ? Number((happyCount / totalRated).toFixed(4)) : 0;
-    score.sad_rate = totalRated ? Number((sadCount / totalRated).toFixed(4)) : 0;
-
-    score.happy_trail = computeHappyTrail(score);
-    score.tier = computeTier(score, provider);
+    await saveScore(score, env);
+  } else {
+    await saveScore(score, env);
   }
 
   const feedbackRecord = {
@@ -506,7 +596,6 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
 
   await env.FEEDBACK.put(`feedback:${thoughtId}`, JSON.stringify(feedbackRecord));
   await env.FEEDBACK.put(happyWindowKey, JSON.stringify(happyWindow));
-  await env.SCORES.put(`score:${providerId}`, JSON.stringify(score));
 
   buyer.last_ratings = { ...lastRatings, [providerId]: feedbackRecord.created_at };
   await env.BUYERS.put(buyerKey, JSON.stringify(buyer));
@@ -582,18 +671,19 @@ async function handleDispute(request: Request, env: Env): Promise<Response> {
   let suspended = false;
   let suspendedUntil: string | null = null;
 
-  const scoreRaw = await env.SCORES.get(`score:${providerId}`);
-  if (scoreRaw) {
-    const score = JSON.parse(scoreRaw);
+  let score = await loadScore(providerId, env);
+  if (score) {
     if (uniqueBuyers.size >= 3) {
       suspended = true;
       const until = new Date(now.getTime() + 48 * 60 * 60 * 1000);
       suspendedUntil = until.toISOString();
-      score.suspended_until = suspendedUntil;
+      score.suspended_until = new Date(suspendedUntil).getTime();
       score.flags = Array.isArray(score.flags) ? score.flags : [];
       if (!score.flags.includes("suspended")) score.flags.push("suspended");
     }
-    await env.SCORES.put(`score:${providerId}`, JSON.stringify(score));
+
+    score = updateScore(score, { type: "dispute_upheld" }, env);
+    await saveScore(score, env);
   }
 
   const responseText = (thought.response || "").toString().trim();
@@ -606,6 +696,11 @@ async function handleDispute(request: Request, env: Env): Promise<Response> {
     reason,
     disputed_at: createdAt
   };
+
+  if (score) {
+    score = updateScore(score, { type: "refund" }, env);
+    await saveScore(score, env);
+  }
 
   await env.THOUGHTS.put(thoughtKey, JSON.stringify(thought));
 
