@@ -362,6 +362,43 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   });
 }
 
+async function handleScore(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const providerId = url.pathname.split("/")[2];
+  if (!providerId) return badRequest("provider_id is required");
+
+  const providerRaw = await env.PROVIDERS.get(`provider:${providerId}`);
+  const scoreRaw = await env.SCORES.get(`score:${providerId}`);
+
+  if (!providerRaw || !scoreRaw) {
+    return notFound();
+  }
+
+  const provider = JSON.parse(providerRaw);
+  const score = JSON.parse(scoreRaw);
+
+  return ok({
+    provider_id: providerId,
+    happy_trail: score.happy_trail,
+    components: {
+      quality: score.quality,
+      reliability: score.reliability,
+      trust: score.trust
+    },
+    total_thoughts: score.total_thoughts,
+    reuse_rate: score.reuse_rate ?? null,
+    happy_rate: score.happy_rate,
+    sad_rate: score.sad_rate,
+    active_days: score.active_days,
+    last_active: score.last_active,
+    tier: score.tier || provider.tier,
+    verified: provider.tier === "verified_brain" || provider.tier === "founding_brain",
+    specialties: provider.specialties || [],
+    flags: score.flags || [],
+    on_chain_proof: score.on_chain_proof ?? null
+  });
+}
+
 async function handleDiscover(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const specialty = url.searchParams.get("specialty");
@@ -511,6 +548,10 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const routeKey = `${request.method} ${url.pathname}`;
+
+    if (request.method === "GET" && url.pathname.startsWith("/score/")) {
+      return handleScore(request, env);
+    }
 
     switch (routeKey) {
       case "POST /register":
