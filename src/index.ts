@@ -512,6 +512,103 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
   });
 }
 
+async function handleDispute(request: Request, env: Env): Promise<Response> {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const thoughtId = typeof body?.thought_id === "string" ? body.thought_id.trim() : "";
+  const providerId = typeof body?.provider_id === "string" ? body.provider_id.trim() : "";
+  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+  const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
+
+  if (!thoughtId) return badRequest("thought_id is required");
+  if (!providerId) return badRequest("provider_id is required");
+  if (!reason) return badRequest("reason is required");
+  if (!buyerWallet) return badRequest("buyer_wallet is required");
+
+  const thoughtKey = `thought:${thoughtId}`;
+  const thoughtRaw = await env.THOUGHTS.get(thoughtKey);
+  if (!thoughtRaw) return badRequest("unknown thought_id");
+
+  const thought = JSON.parse(thoughtRaw);
+  if (thought.provider_id !== providerId) {
+    return badRequest("provider_id does not match thought record");
+  }
+  if (thought.buyer_wallet !== buyerWallet) {
+    return badRequest("buyer_wallet did not purchase this thought");
+  }
+
+  const disputeId = `dispute_${crypto.randomUUID()}`;
+  const now = new Date();
+  const createdAt = now.toISOString();
+
+  const disputeRecord = {
+    dispute_id: disputeId,
+    thought_id: thoughtId,
+    provider_id: providerId,
+    reason,
+    buyer_wallet: buyerWallet,
+    created_at: createdAt
+  };
+
+  await env.FLAGS.put(`flag:${providerId}:${thoughtId}`, JSON.stringify(disputeRecord));
+
+  const list = await env.FLAGS.list({ prefix: `flag:${providerId}:` });
+  const windowStart = now.getTime() - 7 * 24 * 60 * 60 * 1000;
+  const uniqueBuyers = new Set<string>();
+
+  for (const key of list.keys) {
+    const raw = await env.FLAGS.get(key.name);
+    if (!raw) continue;
+    const record = JSON.parse(raw);
+    const ts = record?.created_at ? new Date(record.created_at).getTime() : 0;
+    if (ts >= windowStart && record?.buyer_wallet) {
+      uniqueBuyers.add(record.buyer_wallet);
+    }
+  }
+
+  let suspended = false;
+  let suspendedUntil: string | null = null;
+
+  const scoreRaw = await env.SCORES.get(`score:${providerId}`);
+  if (scoreRaw) {
+    const score = JSON.parse(scoreRaw);
+    if (uniqueBuyers.size >= 3) {
+      suspended = true;
+      const until = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+      suspendedUntil = until.toISOString();
+      score.suspended_until = suspendedUntil;
+      score.flags = Array.isArray(score.flags) ? score.flags : [];
+      if (!score.flags.includes("suspended")) score.flags.push("suspended");
+    }
+    await env.SCORES.put(`score:${providerId}`, JSON.stringify(score));
+  }
+
+  const responseText = (thought.response || "").toString().trim();
+  const fullRefund = responseText.length === 0 || responseText.toLowerCase() === "error";
+  const partialRefund = !fullRefund;
+
+  thought.refund = {
+    full_refund: fullRefund,
+    partial_refund: partialRefund,
+    reason,
+    disputed_at: createdAt
+  };
+
+  await env.THOUGHTS.put(thoughtKey, JSON.stringify(thought));
+
+  return ok({
+    dispute_id: disputeId,
+    status: "filed",
+    suspended,
+    suspended_until: suspendedUntil
+  });
+}
+
 async function handleScore(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const providerId = url.pathname.split("/")[2];
@@ -710,6 +807,8 @@ export default {
         return handleThink(request, env);
       case "POST /feedback":
         return handleFeedback(request, env);
+      case "POST /dispute":
+        return handleDispute(request, env);
       case "GET /health":
         return ok({
           status: "ok",
