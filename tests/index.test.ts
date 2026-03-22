@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import worker from "../src/index";
+import { updateScore, type ScoreRecord } from "../src/scoring";
+import { runDecay } from "../src/decay";
 
 class MockKV implements KVNamespace {
   private store = new Map<string, string>();
@@ -424,5 +426,303 @@ describe("HappyThoughts Phase 2", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.sample_thought_id).toBeTruthy();
+  });
+});
+
+describe("HappyThoughts Phase 3", () => {
+  it("updateScore — suspension gate", async () => {
+    const now = Date.now();
+    const score: ScoreRecord = {
+      provider_id: "prov_susp",
+      quality: 50,
+      reliability: 50,
+      trust: 50,
+      happy_trail: 50,
+      tier: "thinker",
+      total_thoughts: 10,
+      total_cached: 0,
+      reuse_rate: 0,
+      created_at: now - 1000,
+      last_active: now - 1000,
+      suspended_until: now + 100_000,
+      consecutive_happy: 0,
+      days_active_no_sad: 0,
+      weekly_delta: 0,
+      delta_log: [],
+      daily_delta: 0,
+      flags: [],
+      hidden: false
+    };
+
+    const updated = updateScore({ ...score }, { type: "happy_rating" }, { SCORES: new MockKV() } as any);
+    expect(updated.quality).toBe(score.quality);
+  });
+
+  it("updateScore — freeze gate", async () => {
+    const now = Date.now();
+    const base: ScoreRecord = {
+      provider_id: "prov_freeze",
+      quality: 50,
+      reliability: 50,
+      trust: 50,
+      happy_trail: 50,
+      tier: "thinker",
+      total_thoughts: 10,
+      total_cached: 0,
+      reuse_rate: 0,
+      created_at: now - 1000,
+      last_active: now - 1000,
+      frozen_until: now + 100_000,
+      consecutive_happy: 0,
+      days_active_no_sad: 0,
+      weekly_delta: 0,
+      delta_log: [],
+      daily_delta: 0,
+      flags: [],
+      hidden: false
+    };
+
+    const blocked = updateScore({ ...base }, { type: "cache_reuse" }, { SCORES: new MockKV() } as any);
+    expect(blocked.quality).toBe(base.quality);
+
+    const penalty = updateScore({ ...base }, { type: "dispute_upheld" }, { SCORES: new MockKV() } as any);
+    expect(penalty.quality).toBeLessThan(base.quality);
+  });
+
+  it("updateScore — velocity cap", async () => {
+    const now = Date.now();
+    const today = new Date(now).toISOString().slice(0, 10);
+    const score: ScoreRecord = {
+      provider_id: "prov_cap",
+      quality: 50,
+      reliability: 50,
+      trust: 50,
+      happy_trail: 50,
+      tier: "thinker",
+      total_thoughts: 10,
+      total_cached: 0,
+      reuse_rate: 0,
+      created_at: now - 1000,
+      last_active: now - 1000,
+      consecutive_happy: 0,
+      days_active_no_sad: 0,
+      weekly_delta: 0,
+      delta_log: [],
+      daily_delta: 3,
+      daily_delta_date: today,
+      flags: [],
+      hidden: false
+    };
+
+    const updated = updateScore({ ...score }, { type: "happy_rating" }, { SCORES: new MockKV() } as any);
+    expect(updated.quality).toBe(score.quality);
+  });
+
+  it("updateScore — new provider cap", async () => {
+    const now = Date.now();
+    const score: ScoreRecord = {
+      provider_id: "prov_new",
+      quality: 90,
+      reliability: 90,
+      trust: 90,
+      happy_trail: 90,
+      tier: "thinker",
+      total_thoughts: 1,
+      total_cached: 0,
+      reuse_rate: 0,
+      created_at: now,
+      last_active: now,
+      consecutive_happy: 0,
+      days_active_no_sad: 0,
+      weekly_delta: 0,
+      delta_log: [],
+      daily_delta: 0,
+      flags: [],
+      hidden: false
+    };
+
+    const updated = updateScore({ ...score }, { type: "happy_rating" }, { SCORES: new MockKV() } as any);
+    expect(updated.happy_trail).toBeLessThanOrEqual(65);
+    expect(updated.cap_applied).toBe(true);
+  });
+
+  it("updateScore — streak: 10 consecutive happy", async () => {
+    const now = Date.now();
+    const score: ScoreRecord = {
+      provider_id: "prov_streak",
+      quality: 50,
+      reliability: 50,
+      trust: 50,
+      happy_trail: 50,
+      tier: "thinker",
+      total_thoughts: 10,
+      total_cached: 0,
+      reuse_rate: 0,
+      created_at: now - 1000,
+      last_active: now - 1000,
+      consecutive_happy: 9,
+      days_active_no_sad: 0,
+      weekly_delta: 0,
+      delta_log: [],
+      daily_delta: 0,
+      flags: [],
+      hidden: false
+    };
+
+    const updated = updateScore({ ...score }, { type: "happy_rating" }, { SCORES: new MockKV() } as any);
+    expect(updated.consecutive_happy).toBe(0);
+    expect(updated.quality).toBeGreaterThanOrEqual(55);
+  });
+
+  it("updateScore — streak: sad resets consecutive_happy", async () => {
+    const now = Date.now();
+    const score: ScoreRecord = {
+      provider_id: "prov_streak2",
+      quality: 50,
+      reliability: 50,
+      trust: 50,
+      happy_trail: 50,
+      tier: "thinker",
+      total_thoughts: 10,
+      total_cached: 0,
+      reuse_rate: 0,
+      created_at: now - 1000,
+      last_active: now - 1000,
+      consecutive_happy: 7,
+      days_active_no_sad: 0,
+      weekly_delta: 0,
+      delta_log: [],
+      daily_delta: 0,
+      flags: [],
+      hidden: false
+    };
+
+    const updated = updateScore({ ...score }, { type: "sad_rating" }, { SCORES: new MockKV() } as any);
+    expect(updated.consecutive_happy).toBe(0);
+  });
+
+  it("updateScore — weekly_delta accumulates", async () => {
+    const now = Date.now();
+    const score: ScoreRecord = {
+      provider_id: "prov_weekly",
+      quality: 50,
+      reliability: 50,
+      trust: 50,
+      happy_trail: 50,
+      tier: "thinker",
+      total_thoughts: 10,
+      total_cached: 0,
+      reuse_rate: 0,
+      created_at: now - 1000,
+      last_active: now - 1000,
+      consecutive_happy: 0,
+      days_active_no_sad: 0,
+      weekly_delta: 0,
+      delta_log: [],
+      daily_delta: 0,
+      flags: [],
+      hidden: false
+    };
+
+    let updated = updateScore({ ...score }, { type: "happy_rating" }, { SCORES: new MockKV() } as any);
+    updated = updateScore(updated, { type: "happy_rating" }, { SCORES: new MockKV() } as any);
+    expect(updated.weekly_delta).toBeGreaterThan(0);
+    expect(updated.delta_log.length).toBe(2);
+  });
+
+  it("runDecay — decays inactive provider", async () => {
+    const env = { SCORES: new MockKV(), PROVIDERS: new MockKV() } as any;
+    const now = Date.now();
+    const score: ScoreRecord = {
+      provider_id: "prov_decay",
+      quality: 50,
+      reliability: 50,
+      trust: 50,
+      happy_trail: 60,
+      tier: "thinker",
+      total_thoughts: 10,
+      total_cached: 0,
+      reuse_rate: 0,
+      created_at: now - 1000,
+      last_active: now - 20 * 86_400_000,
+      consecutive_happy: 0,
+      days_active_no_sad: 0,
+      weekly_delta: 0,
+      delta_log: [],
+      daily_delta: 0,
+      flags: [],
+      hidden: false
+    };
+    await env.SCORES.put(`score:${score.provider_id}`, JSON.stringify(score));
+
+    const result = await runDecay(env);
+    const updatedRaw = await env.SCORES.get(`score:${score.provider_id}`);
+    const updated = updatedRaw ? JSON.parse(updatedRaw) : null;
+    expect(result.decayed).toBe(1);
+    expect(updated.happy_trail).toBeLessThan(score.happy_trail);
+  });
+
+  it("runDecay — does not decay founding_brain", async () => {
+    const env = { SCORES: new MockKV(), PROVIDERS: new MockKV() } as any;
+    const now = Date.now();
+    const score: ScoreRecord = {
+      provider_id: "prov_founder",
+      quality: 50,
+      reliability: 50,
+      trust: 50,
+      happy_trail: 60,
+      tier: "founding_brain",
+      total_thoughts: 10,
+      total_cached: 0,
+      reuse_rate: 0,
+      created_at: now - 1000,
+      last_active: now - 20 * 86_400_000,
+      consecutive_happy: 0,
+      days_active_no_sad: 0,
+      weekly_delta: 0,
+      delta_log: [],
+      daily_delta: 0,
+      flags: [],
+      hidden: false
+    };
+    await env.SCORES.put(`score:${score.provider_id}`, JSON.stringify(score));
+
+    const result = await runDecay(env);
+    const updatedRaw = await env.SCORES.get(`score:${score.provider_id}`);
+    const updated = updatedRaw ? JSON.parse(updatedRaw) : null;
+    expect(result.decayed).toBe(0);
+    expect(updated.happy_trail).toBe(score.happy_trail);
+  });
+
+  it("runDecay — sets hidden flag at 60 days", async () => {
+    const env = { SCORES: new MockKV(), PROVIDERS: new MockKV() } as any;
+    const now = Date.now();
+    const score: ScoreRecord = {
+      provider_id: "prov_hidden",
+      quality: 50,
+      reliability: 50,
+      trust: 50,
+      happy_trail: 28,
+      tier: "thinker",
+      total_thoughts: 10,
+      total_cached: 0,
+      reuse_rate: 0,
+      created_at: now - 1000,
+      last_active: now - 61 * 86_400_000,
+      consecutive_happy: 0,
+      days_active_no_sad: 0,
+      weekly_delta: 0,
+      delta_log: [],
+      daily_delta: 0,
+      flags: [],
+      hidden: false
+    };
+    await env.SCORES.put(`score:${score.provider_id}`, JSON.stringify(score));
+
+    const result = await runDecay(env);
+    const updatedRaw = await env.SCORES.get(`score:${score.provider_id}`);
+    const updated = updatedRaw ? JSON.parse(updatedRaw) : null;
+    expect(result.hidden).toBe(1);
+    expect(updated.hidden).toBe(true);
   });
 });
