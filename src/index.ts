@@ -1,5 +1,6 @@
 import { verifyX402Payment } from "./middleware/payment";
 import { getDomainDisclaimer } from "./constants/disclaimers";
+import { LEGAL_AUP, LEGAL_PRIVACY, LEGAL_PROVIDER_AGREEMENT, LEGAL_TOS } from "./constants/legal";
 
 const SPECIALTY_LEAVES = new Set([
   "trading/signals",
@@ -70,6 +71,13 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" }
+  });
+}
+
+function textResponse(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "text/plain" }
   });
 }
 
@@ -747,6 +755,53 @@ async function handleRoute(request: Request, env: Env): Promise<Response> {
   });
 }
 
+async function handleDocs(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const base = url.origin;
+
+  return ok({
+    name: "Happy Thoughts",
+    description: "Pay-per-thought marketplace for AI agents",
+    version: "1.0.0",
+    endpoints: [
+      { method: "POST", path: "/think", description: "Pay → route → return thought" },
+      { method: "POST", path: "/register", description: "Provider registration with stake" },
+      { method: "GET", path: "/discover", description: "List providers" },
+      { method: "GET", path: "/route", description: "Preview top 3 providers" },
+      { method: "POST", path: "/feedback", description: "Rate a thought" },
+      { method: "POST", path: "/dispute", description: "Dispute a thought" },
+      { method: "GET", path: "/score/{provider_id}", description: "Provider score breakdown" },
+      { method: "GET", path: "/leaderboard", description: "Top providers" },
+      { method: "GET", path: "/health", description: "Health check" },
+      { method: "GET", path: "/legal/tos", description: "Terms of Service" },
+      { method: "GET", path: "/legal/privacy", description: "Privacy Policy" },
+      { method: "GET", path: "/legal/provider-agreement", description: "Provider Agreement" },
+      { method: "GET", path: "/legal/aup", description: "Acceptable Use Policy" },
+      { method: "GET", path: "/docs", description: "Docs summary" },
+      { method: "GET", path: "/preview", description: "Sample thought preview" }
+    ],
+    payment: "x402 USDC via Base",
+    legal: {
+      tos: `${base}/legal/tos`,
+      privacy: `${base}/legal/privacy`,
+      provider_agreement: `${base}/legal/provider-agreement`,
+      aup: `${base}/legal/aup`
+    }
+  });
+}
+
+async function handlePreview(): Promise<Response> {
+  return ok({
+    sample_thought_id: "ht_example",
+    sample_specialty: "trading/signals",
+    sample_price: 0.15,
+    sample_response: "Example thought output",
+    sample_disclaimer:
+      "This thought is not investment advice. Not a solicitation to buy or sell any asset. Past performance does not guarantee future results.",
+    note: "This is a preview. Call x402 payment to receive real thoughts."
+  });
+}
+
 async function handleLeaderboard(request: Request, env: Env): Promise<Response> {
   const list = await env.PROVIDERS.list({ prefix: "provider:" });
   const rows: any[] = [];
@@ -923,6 +978,21 @@ export default {
       return handleScore(request, env);
     }
 
+    if (request.method === "GET" && url.pathname.startsWith("/legal/")) {
+      switch (url.pathname) {
+        case "/legal/tos":
+          return textResponse(LEGAL_TOS);
+        case "/legal/privacy":
+          return textResponse(LEGAL_PRIVACY);
+        case "/legal/provider-agreement":
+          return textResponse(LEGAL_PROVIDER_AGREEMENT);
+        case "/legal/aup":
+          return textResponse(LEGAL_AUP);
+        default:
+          return notFound();
+      }
+    }
+
     switch (routeKey) {
       case "POST /register":
         return handleRegister(request, env);
@@ -944,6 +1014,10 @@ export default {
         return handleRoute(request, env);
       case "GET /leaderboard":
         return handleLeaderboard(request, env);
+      case "GET /docs":
+        return handleDocs(request);
+      case "GET /preview":
+        return handlePreview();
       default:
         return notFound();
     }
