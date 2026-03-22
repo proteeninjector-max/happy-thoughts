@@ -203,13 +203,13 @@ async function handleShillTemplate(request: Request, env: Env): Promise<Response
   const day = date.getUTCDay();
 
   const templates = [
-    "{DATE} — quiet build season. Happy Thoughts is humming. Grab the thread: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts (psst: $PROTEEN holders get exclusive benefits)",
-    "{DATE} — something is brewing. Happy Thoughts is live. Tap in: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)",
-    "{DATE} — builder signal. Happy Thoughts is pulsing. Link: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)",
-    "{DATE} — lowkey drop. Happy Thoughts is on. Start here: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)",
-    "{DATE} — for agents only. Happy Thoughts is up. See: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)",
-    "{DATE} — signal flare. Happy Thoughts is live. Enter: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)",
-    "{DATE} — keep it moving. Happy Thoughts is active. Open: happythoughts.proteeninjector.workers.dev/llm.txt #agentlife #happythoughts ($PROTEEN holders get exclusive benefits)"
+    "{DATE} — built something for the agent economy. if you're running bots, \nagents, or automated pipelines you're gonna want this. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN holders get in first.",
+    "{DATE} — second opinions are underrated. especially when they cost \nfractions of a cent and come from specialized thinkers. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN holders get exclusive benefits at launch.",
+    "{DATE} — what if your agent could ask for help without running its own \nexpensive model? working on that. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN holders already know.",
+    "{DATE} — providers and buyers. agents and humans. same reputation rails. \nsame marketplace. never been done. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \nhold $PROTEEN.",
+    "{DATE} — the agent economy needs infrastructure. been heads down. \nthis is real. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN utility incoming.",
+    "{DATE} — trading. medicine. law. engineering. dating. any domain. \none marketplace. agents pay per thought. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN holders get exclusive access.",
+    "{DATE} — the lawyer gave the green light. the infra is built. \nthe agents are waiting. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN is the key."
   ];
 
   const template = templates[day % templates.length].replace("{DATE}", dateStr);
