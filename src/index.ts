@@ -72,8 +72,16 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function ok(body: unknown, status = 200): Response {
+  return jsonResponse(body, status);
+}
+
 function badRequest(message: string, details?: unknown): Response {
   return jsonResponse({ error: "bad_request", message, details }, 400);
+}
+
+function notFound(): Response {
+  return jsonResponse({ error: "Not found" }, 404);
 }
 
 function validateSpecialties(specialties: string[]): string[] {
@@ -262,23 +270,22 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "POST" && url.pathname === "/register") {
-      return handleRegister(request, env);
-    }
+    const routeKey = `${request.method} ${url.pathname}`;
 
-    if (request.method === "GET" && url.pathname === "/health") {
-      return jsonResponse({
-        status: "ok",
-        version: "1.0.0",
-        timestamp: new Date().toISOString()
-      });
+    switch (routeKey) {
+      case "POST /register":
+        return handleRegister(request, env);
+      case "GET /health":
+        return ok({
+          status: "ok",
+          version: "1.0.0",
+          timestamp: new Date().toISOString()
+        });
+      case "GET /discover":
+        return handleDiscover(request, env);
+      default:
+        return notFound();
     }
-
-    if (request.method === "GET" && url.pathname === "/discover") {
-      return handleDiscover(request, env);
-    }
-
-    return jsonResponse({ error: "Not found" }, 404);
   }
 };
 
