@@ -111,25 +111,64 @@ export function updateScore(score: ScoreRecord, event: ScoreUpdateEvent, env: En
       break;
   }
 
-  const hasPositiveDelta = qualityDelta + reliabilityDelta + trustDelta > 0;
+  // --- Streak tracking ---
+  const todayStr = todayString(now);
+
+  if (event.type === "happy_rating" || event.type === "challenger_happy") {
+    score.consecutive_happy = (score.consecutive_happy || 0) + 1;
+
+    // 10 consecutive happy → +3 Quality bonus (applied outside velocity cap)
+    if (score.consecutive_happy >= 10) {
+      score.quality = clamp(score.quality + 3);
+      score.consecutive_happy = 0;
+      console.log("[STREAK] 10 consecutive happy — +3 Quality bonus applied");
+    }
+
+    // Track days_active_no_sad
+    if (score.last_active_day !== todayStr) {
+      score.last_active_day = todayStr;
+      // Only increment if no sad today
+      if (score.last_sad_day !== todayStr) {
+        score.days_active_no_sad = (score.days_active_no_sad || 0) + 1;
+      }
+    }
+
+    // 30 days active no sad → +5 Trust bonus (applied outside velocity cap)
+    if (score.days_active_no_sad >= 30) {
+      score.trust = clamp(score.trust + 5);
+      score.days_active_no_sad = 0;
+      console.log("[STREAK] 30 days active no sad — +5 Trust bonus applied");
+    }
+  } else if (event.type === "sad_rating") {
+    score.consecutive_happy = 0;
+    score.last_sad_day = todayStr;
+    // Don't reset days_active_no_sad counter yet — it will fail to increment next active day
+  }
+
+  // Reset daily_delta if new day
   const today = todayString(now);
   if (score.daily_delta_date !== today) {
     score.daily_delta_date = today;
     score.daily_delta = 0;
   }
 
-  if (hasPositiveDelta && score.daily_delta >= 3) {
+  // Velocity cap: if positive deltas would exceed +3 today, zero them out
+  const rawPositiveDelta = qualityDelta + reliabilityDelta + trustDelta;
+  if (rawPositiveDelta > 0 && score.daily_delta >= 3) {
     qualityDelta = 0;
     reliabilityDelta = 0;
     trustDelta = 0;
   }
 
+  // Apply deltas
   score.quality = clamp(score.quality + qualityDelta);
   score.reliability = clamp(score.reliability + reliabilityDelta);
   score.trust = clamp(score.trust + trustDelta);
 
-  if (hasPositiveDelta) {
-    score.daily_delta = round2(score.daily_delta + (qualityDelta + reliabilityDelta + trustDelta));
+  // Only accumulate daily_delta for what actually landed
+  const appliedPositiveDelta = qualityDelta + reliabilityDelta + trustDelta;
+  if (appliedPositiveDelta > 0) {
+    score.daily_delta = round2(score.daily_delta + appliedPositiveDelta);
   }
 
   const computedHappyTrail = round2(
