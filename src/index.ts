@@ -132,6 +132,42 @@ function round2(v: number) {
   return Number(v.toFixed(2));
 }
 
+async function isSybilWallet(
+  buyerWallet: string,
+  providerId: string,
+  rating: string,
+  env: Env
+): Promise<boolean> {
+  // Get this buyer's rating history
+  const buyerHistoryRaw = await env.FEEDBACK.get(`sybil:${buyerWallet}`);
+  const buyerHistory: Record<string, string> = buyerHistoryRaw ? JSON.parse(buyerHistoryRaw) : {};
+
+  // Record this rating in their history
+  buyerHistory[providerId] = rating;
+  await env.FEEDBACK.put(`sybil:${buyerWallet}`, JSON.stringify(buyerHistory));
+
+  // Get all sybil history keys to compare patterns
+  const allKeys = await env.FEEDBACK.list({ prefix: "sybil:" });
+  let matchCount = 0;
+
+  for (const key of allKeys.keys) {
+    if (key.name === `sybil:${buyerWallet}`) continue;
+    const otherRaw = await env.FEEDBACK.get(key.name);
+    if (!otherRaw) continue;
+    const otherHistory: Record<string, string> = JSON.parse(otherRaw);
+
+    // Compare overlap: how many providers did both wallets rate identically?
+    const sharedProviders = Object.keys(buyerHistory).filter(
+      (pid) => otherHistory[pid] === buyerHistory[pid]
+    );
+
+    // Sybil signal: 3+ identical ratings with same providers
+    if (sharedProviders.length >= 3) matchCount++;
+  }
+
+  return matchCount >= 2; // 2+ other wallets with identical pattern = sybil cluster
+}
+
 function computeHappyTrail(score: { quality: number; reliability: number; trust: number }): number {
   return Number((score.quality * 0.5 + score.reliability * 0.3 + score.trust * 0.2).toFixed(2));
 }
@@ -379,8 +415,36 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "no_providers", message: "No providers available" }, 404);
   }
 
-  candidates.sort((a, b) => b.score.happy_trail - a.score.happy_trail);
-  const selected = candidates[0];
+  // Challenger routing: 10% of traffic goes to a non-top provider
+  const isChallenger = Math.random() < 0.1;
+  let selected: any = null;
+
+  if (isChallenger) {
+    const allProviders = candidates.filter(({ score }) => {
+      if (score.hidden) return false;
+      if (score.suspended_until && score.suspended_until > Date.now()) return false;
+      if (score.tier === "founding_brain") return false;
+      return true;
+    });
+
+    allProviders.sort((a, b) => b.score.happy_trail - a.score.happy_trail);
+
+    if (allProviders.length > 1) {
+      const pool = allProviders.slice(1);
+      selected = pool[Math.floor(Math.random() * pool.length)];
+      console.log(`[CHALLENGER] routing to ${selected.provider.id} (not top)`);
+    } else {
+      selected = allProviders[0] ?? null;
+    }
+  } else {
+    candidates.sort((a, b) => b.score.happy_trail - a.score.happy_trail);
+    selected = candidates[0];
+  }
+
+  if (!selected) {
+    return new Response(JSON.stringify({ error: "no providers available" }), { status: 404 });
+  }
+
   const provider = selected.provider;
   const score = selected.score;
 
@@ -403,6 +467,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     response: thought,
     disclaimer,
     cached: false,
+    challenger: isChallenger,
     parent_thought_id: null,
     timestamp: new Date().toISOString(),
     buyer_wallet: buyerWallet,
@@ -551,6 +616,35 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
   let score = await loadScore(providerId, env);
   if (!score) return new Response(JSON.stringify({ error: "provider score not found" }), { status: 404 });
 
+  // Self-dealing detection: provider rating their own thought
+  const providerRaw = await env.PROVIDERS.get(`provider:${providerId}`);
+  const providerRecord = providerRaw ? JSON.parse(providerRaw) : null;
+  if (providerRecord?.wallet && providerRecord.wallet.toLowerCase() === buyerWallet.toLowerCase()) {
+    // Nullify rating, apply -10 Quality penalty, log it
+    score.quality = Math.max(0, score.quality - 10);
+    score.happy_trail = round2(score.quality * 0.5 + score.reliability * 0.3 + score.trust * 0.2);
+    await saveScore(score, env);
+    console.log(
+      `[SELF-DEALING] detected: ${buyerWallet} rated own thought ${thoughtId} — nullified, -10 Quality`
+    );
+    await env.FLAGS.put(
+      `selfdealing:${providerId}:${thoughtId}`,
+      JSON.stringify({
+        provider_id: providerId,
+        thought_id: thoughtId,
+        buyer_wallet: buyerWallet,
+        detected_at: new Date().toISOString()
+      })
+    );
+    return new Response(
+      JSON.stringify({
+        error: "self-dealing detected — rating nullified",
+        penalty: "-10 Quality applied"
+      }),
+      { status: 403, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   const happyWindowKey = `feedback:provider:${providerId}:happy_window`;
   let happyWindow: number[] = [];
   const windowRaw = await env.FEEDBACK.get(happyWindowKey);
@@ -567,12 +661,36 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
     }
   }
 
+  // Sybil detection
+  const sybil = await isSybilWallet(buyerWallet, providerId, rating, env);
+  const sybilWeight = sybil ? 0.25 : 1.0;
+
   if (!held) {
     if (rating === "happy") {
       const isChallenger = thought?.challenger === true;
-      score = updateScore(score, isChallenger ? { type: "challenger_happy" } : { type: "happy_rating" }, env);
+      const event = isChallenger ? { type: "challenger_happy" as const } : { type: "happy_rating" as const };
+      let updatedScore = updateScore(score, event, env);
+      if (sybil) {
+        // Sybil: revert to original quality, apply only 25% of the delta
+        const fullDelta = updatedScore.quality - score.quality;
+        updatedScore.quality = round2(score.quality + fullDelta * 0.25);
+        updatedScore.happy_trail = round2(
+          updatedScore.quality * 0.5 + updatedScore.reliability * 0.3 + updatedScore.trust * 0.2
+        );
+        console.log(`[SYBIL] reduced weight 0.25x for ${buyerWallet} → ${providerId}`);
+      }
+      score = updatedScore;
     } else if (rating === "sad") {
-      score = updateScore(score, { type: "sad_rating" }, env);
+      let updatedScore = updateScore(score, { type: "sad_rating" }, env);
+      if (sybil) {
+        const fullDelta = updatedScore.quality - score.quality;
+        updatedScore.quality = round2(score.quality + fullDelta * 0.25);
+        updatedScore.happy_trail = round2(
+          updatedScore.quality * 0.5 + updatedScore.reliability * 0.3 + updatedScore.trust * 0.2
+        );
+        console.log(`[SYBIL] reduced weight 0.25x for ${buyerWallet} → ${providerId}`);
+      }
+      score = updatedScore;
     }
 
     if (tag === "hallucinated") {
@@ -606,7 +724,8 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
     thought_id: thoughtId,
     provider_id: providerId,
     happy_trail: score.happy_trail,
-    tier: score.tier
+    tier: score.tier,
+    sybil_flagged: sybil
   });
 }
 
@@ -710,6 +829,58 @@ async function handleDispute(request: Request, env: Env): Promise<Response> {
     status: "filed",
     suspended,
     suspended_until: suspendedUntil
+  });
+}
+
+async function handleRefund(request: Request, env: Env): Promise<Response> {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const thoughtId = typeof body?.thought_id === "string" ? body.thought_id.trim() : "";
+  const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
+  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+
+  if (!thoughtId) return badRequest("thought_id is required");
+  if (!buyerWallet) return badRequest("buyer_wallet is required");
+  if (!reason) return badRequest("reason is required");
+
+  const thoughtRaw = await env.THOUGHTS.get(`thought:${thoughtId}`);
+  if (!thoughtRaw) return badRequest("unknown thought_id");
+
+  const thought = JSON.parse(thoughtRaw);
+  if (thought.buyer_wallet !== buyerWallet) {
+    return badRequest("buyer_wallet did not purchase this thought");
+  }
+  if (thought.refunded) {
+    return badRequest("thought has already been refunded");
+  }
+
+  const providerId = thought.provider_id;
+  let score = await loadScore(providerId, env);
+  if (score) {
+    score = updateScore(score, { type: "refund" }, env);
+    await saveScore(score, env);
+  }
+
+  thought.refunded = true;
+  thought.refund = {
+    reason,
+    refunded_at: new Date().toISOString(),
+    requested_by: buyerWallet
+  };
+  await env.THOUGHTS.put(`thought:${thoughtId}`, JSON.stringify(thought));
+
+  console.log(`[REFUND] issued for thought ${thoughtId} provider ${providerId}`);
+
+  return ok({
+    status: "refunded",
+    thought_id: thoughtId,
+    provider_id: providerId,
+    happy_trail: score?.happy_trail ?? null
   });
 }
 
@@ -1098,6 +1269,8 @@ export default {
         return handleFeedback(request, env);
       case "POST /dispute":
         return handleDispute(request, env);
+      case "POST /refund":
+        return handleRefund(request, env);
       case "GET /health":
         return ok({
           status: "ok",

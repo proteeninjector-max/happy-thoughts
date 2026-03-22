@@ -726,3 +726,331 @@ describe("HappyThoughts Phase 3", () => {
     expect(updated.hidden).toBe(true);
   });
 });
+
+describe("HappyThoughts Phase 4", () => {
+  it("Self-dealing — blocked and penalized", async () => {
+    const env = makeEnv();
+    const providerId = "prov_self";
+    const buyerWallet = "0xSELF";
+
+    await env.PROVIDERS.put(
+      `provider:${providerId}`,
+      JSON.stringify({
+        id: providerId,
+        name: "Self Dealer",
+        description: "Desc",
+        specialties: ["trading/signals"],
+        payout_wallet: "0xabc",
+        wallet: buyerWallet,
+        tier: "thinker"
+      })
+    );
+    await env.SCORES.put(
+      `score:${providerId}`,
+      JSON.stringify({
+        provider_id: providerId,
+        quality: 50,
+        reliability: 50,
+        trust: 50,
+        happy_trail: 50,
+        tier: "thinker",
+        total_thoughts: 10,
+        total_cached: 0,
+        reuse_rate: 0,
+        created_at: Date.now() - 1000,
+        last_active: Date.now() - 1000,
+        consecutive_happy: 0,
+        days_active_no_sad: 0,
+        weekly_delta: 0,
+        delta_log: [],
+        daily_delta: 0,
+        flags: [],
+        hidden: false
+      })
+    );
+
+    await env.THOUGHTS.put(
+      "thought:selfdeal",
+      JSON.stringify({
+        thought_id: "selfdeal",
+        provider_id: providerId,
+        buyer_wallet: buyerWallet,
+        response: "ok"
+      })
+    );
+
+    await env.BUYERS.put(
+      `buyer:${buyerWallet}`,
+      JSON.stringify({ total_paid: 3, last_ratings: {} })
+    );
+
+    const res = await worker.fetch(
+      new Request("https://test/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          thought_id: "selfdeal",
+          provider_id: providerId,
+          rating: "happy",
+          buyer_wallet: buyerWallet
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(JSON.stringify(json)).toMatch(/self-dealing detected/i);
+  });
+
+  it("Self-dealing — score penalty applied", async () => {
+    const env = makeEnv();
+    const providerId = "prov_self2";
+    const buyerWallet = "0xSELF2";
+
+    await env.PROVIDERS.put(
+      `provider:${providerId}`,
+      JSON.stringify({
+        id: providerId,
+        name: "Self Dealer",
+        description: "Desc",
+        specialties: ["trading/signals"],
+        payout_wallet: "0xabc",
+        wallet: buyerWallet,
+        tier: "thinker"
+      })
+    );
+    await env.SCORES.put(
+      `score:${providerId}`,
+      JSON.stringify({
+        provider_id: providerId,
+        quality: 50,
+        reliability: 50,
+        trust: 50,
+        happy_trail: 50,
+        tier: "thinker",
+        total_thoughts: 10,
+        total_cached: 0,
+        reuse_rate: 0,
+        created_at: Date.now() - 1000,
+        last_active: Date.now() - 1000,
+        consecutive_happy: 0,
+        days_active_no_sad: 0,
+        weekly_delta: 0,
+        delta_log: [],
+        daily_delta: 0,
+        flags: [],
+        hidden: false
+      })
+    );
+
+    await env.THOUGHTS.put(
+      "thought:selfdeal2",
+      JSON.stringify({
+        thought_id: "selfdeal2",
+        provider_id: providerId,
+        buyer_wallet: buyerWallet,
+        response: "ok"
+      })
+    );
+
+    await env.BUYERS.put(
+      `buyer:${buyerWallet}`,
+      JSON.stringify({ total_paid: 3, last_ratings: {} })
+    );
+
+    await worker.fetch(
+      new Request("https://test/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          thought_id: "selfdeal2",
+          provider_id: providerId,
+          rating: "happy",
+          buyer_wallet: buyerWallet
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    const updatedRaw = await env.SCORES.get(`score:${providerId}`);
+    const updated = updatedRaw ? JSON.parse(updatedRaw) : null;
+    expect(updated.quality).toBe(40);
+  });
+
+  it("Challenger routing — thought record flagged", async () => {
+    const env = makeEnv();
+    const { provider } = await seedProvider(env, "prov_chal");
+
+    await env.THOUGHTS.put(
+      "thought:chal",
+      JSON.stringify({
+        thought_id: "chal",
+        provider_id: provider.id,
+        buyer_wallet: "0xbuyer",
+        response: "ok",
+        challenger: true
+      })
+    );
+
+    await env.BUYERS.put(
+      "buyer:0xbuyer",
+      JSON.stringify({ total_paid: 3, last_ratings: {} })
+    );
+
+    const res = await worker.fetch(
+      new Request("https://test/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          thought_id: "chal",
+          provider_id: provider.id,
+          rating: "happy",
+          buyer_wallet: "0xbuyer"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe("applied");
+  });
+
+  it("/refund — success", async () => {
+    const env = makeEnv();
+    const { provider } = await seedProvider(env, "prov_refund");
+
+    await env.THOUGHTS.put(
+      "thought:refund1",
+      JSON.stringify({
+        thought_id: "refund1",
+        provider_id: provider.id,
+        buyer_wallet: "0xbuyer",
+        response: "ok"
+      })
+    );
+
+    const res = await worker.fetch(
+      new Request("https://test/refund", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          thought_id: "refund1",
+          buyer_wallet: "0xbuyer",
+          reason: "not satisfied"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe("refunded");
+  });
+
+  it("/refund — wrong buyer blocked", async () => {
+    const env = makeEnv();
+    const { provider } = await seedProvider(env, "prov_refund2");
+
+    await env.THOUGHTS.put(
+      "thought:refund2",
+      JSON.stringify({
+        thought_id: "refund2",
+        provider_id: provider.id,
+        buyer_wallet: "0xbuyer",
+        response: "ok"
+      })
+    );
+
+    const res = await worker.fetch(
+      new Request("https://test/refund", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          thought_id: "refund2",
+          buyer_wallet: "0xother",
+          reason: "not satisfied"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(400);
+  });
+
+  it("/refund — double refund blocked", async () => {
+    const env = makeEnv();
+    const { provider } = await seedProvider(env, "prov_refund3");
+
+    await env.THOUGHTS.put(
+      "thought:refund3",
+      JSON.stringify({
+        thought_id: "refund3",
+        provider_id: provider.id,
+        buyer_wallet: "0xbuyer",
+        response: "ok",
+        refunded: true
+      })
+    );
+
+    const res = await worker.fetch(
+      new Request("https://test/refund", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          thought_id: "refund3",
+          buyer_wallet: "0xbuyer",
+          reason: "duplicate"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(JSON.stringify(json)).toMatch(/already been refunded/i);
+  });
+
+  it("/refund — score penalty applied", async () => {
+    const env = makeEnv();
+    const { provider, score } = await seedProvider(env, "prov_refund4");
+
+    await env.SCORES.put(`score:${provider.id}`, JSON.stringify({ ...score, provider_id: provider.id }));
+
+    await env.THOUGHTS.put(
+      "thought:refund4",
+      JSON.stringify({
+        thought_id: "refund4",
+        provider_id: provider.id,
+        buyer_wallet: "0xbuyer",
+        response: "ok"
+      })
+    );
+
+    await worker.fetch(
+      new Request("https://test/refund", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          thought_id: "refund4",
+          buyer_wallet: "0xbuyer",
+          reason: "not satisfied"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    const updatedRaw = await env.SCORES.get(`score:${provider.id}`);
+    const updated = updatedRaw ? JSON.parse(updatedRaw) : null;
+    expect(updated.quality).toBeLessThan(80);
+    expect(updated.frozen_until).toBeTruthy();
+  });
+});
