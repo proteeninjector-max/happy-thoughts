@@ -118,6 +118,18 @@ function computePrice(happyTrail: number, specialties: string[]): number {
   return Number((base * multiplier).toFixed(4));
 }
 
+function computeHappyTrail(score: { quality: number; reliability: number; trust: number }): number {
+  return Number((score.quality * 0.5 + score.reliability * 0.3 + score.trust * 0.2).toFixed(2));
+}
+
+function computeTier(score: any, provider: any): string {
+  if (provider?.tier === "founding_brain") return "founding_brain";
+  if ((score.flags || []).length === 0 && score.total_thoughts >= 200 && score.happy_trail > 80)
+    return "verified_brain";
+  if (score.rated_thoughts >= 50 && score.happy_trail > 65) return "trusted_thinker";
+  return "thinker";
+}
+
 function matchSpecialty(query: string, providerSpecialties: string[]): boolean {
   const q = query.toLowerCase();
   return providerSpecialties.some((s) => s.toLowerCase().startsWith(q));
@@ -362,6 +374,144 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   });
 }
 
+async function handleFeedback(request: Request, env: Env): Promise<Response> {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const thoughtId = typeof body?.thought_id === "string" ? body.thought_id.trim() : "";
+  const providerId = typeof body?.provider_id === "string" ? body.provider_id.trim() : "";
+  const rating = typeof body?.rating === "string" ? body.rating.trim() : "";
+  const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
+  const tag = typeof body?.tag === "string" ? body.tag.trim() : null;
+
+  if (!thoughtId) return badRequest("thought_id is required");
+  if (!providerId) return badRequest("provider_id is required");
+  if (!buyerWallet) return badRequest("buyer_wallet is required");
+  if (!rating || !["happy", "sad"].includes(rating)) {
+    return badRequest("rating must be happy|sad");
+  }
+
+  const thoughtRaw = await env.THOUGHTS.get(`thought:${thoughtId}`);
+  if (!thoughtRaw) return badRequest("unknown thought_id");
+
+  const thought = JSON.parse(thoughtRaw);
+  if (thought.provider_id !== providerId) {
+    return badRequest("provider_id does not match thought record");
+  }
+  if (thought.buyer_wallet !== buyerWallet) {
+    return badRequest("buyer_wallet did not purchase this thought");
+  }
+
+  const buyerKey = `buyer:${buyerWallet}`;
+  const buyerRaw = await env.BUYERS.get(buyerKey);
+  if (!buyerRaw) return badRequest("buyer profile not found");
+  const buyer = JSON.parse(buyerRaw);
+  if ((buyer.total_paid || 0) < 3) {
+    return badRequest("buyer must have 3+ paid thoughts before rating");
+  }
+
+  const now = Date.now();
+  const lastRatings = buyer.last_ratings || {};
+  const lastForProvider = lastRatings[providerId];
+  if (lastForProvider && now - new Date(lastForProvider).getTime() < 24 * 60 * 60 * 1000) {
+    return badRequest("rate limit: max 1 rating per provider per 24h");
+  }
+
+  const scoreRaw = await env.SCORES.get(`score:${providerId}`);
+  if (!scoreRaw) return badRequest("provider score not found");
+
+  const providerRaw = await env.PROVIDERS.get(`provider:${providerId}`);
+  const provider = providerRaw ? JSON.parse(providerRaw) : null;
+  const score = JSON.parse(scoreRaw);
+
+  const happyWindowKey = `feedback:provider:${providerId}:happy_window`;
+  let happyWindow: number[] = [];
+  const windowRaw = await env.FEEDBACK.get(happyWindowKey);
+  if (windowRaw) happyWindow = JSON.parse(windowRaw) || [];
+  happyWindow = happyWindow.filter((ts) => now - ts < 60 * 60 * 1000);
+
+  let held = false;
+  if (rating === "happy") {
+    happyWindow.push(now);
+    if (happyWindow.length >= 5) {
+      held = true;
+      score.flags = Array.isArray(score.flags) ? score.flags : [];
+      if (!score.flags.includes("burst_hold")) score.flags.push("burst_hold");
+    }
+  }
+
+  let qualityDelta = 0;
+  if (!held) {
+    if (rating === "happy") {
+      qualityDelta = thought.challenger ? 4 : 2;
+    } else if (rating === "sad") {
+      qualityDelta = -3;
+    }
+
+    if (tag === "hallucinated") {
+      qualityDelta += -5;
+      score.flags = Array.isArray(score.flags) ? score.flags : [];
+      if (!score.flags.includes("yellow_flag")) score.flags.push("yellow_flag");
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (qualityDelta > 0) {
+      if (score.daily_delta_date !== today) {
+        score.daily_delta_date = today;
+        score.daily_delta = 0;
+      }
+      const remaining = Math.max(0, 3 - (score.daily_delta || 0));
+      const applied = Math.min(qualityDelta, remaining);
+      qualityDelta = applied;
+      score.daily_delta = (score.daily_delta || 0) + applied;
+    }
+
+    score.quality = Number((score.quality + qualityDelta).toFixed(2));
+    score.rated_thoughts = (score.rated_thoughts || 0) + 1;
+
+    const happyCount = (score.happy_count || 0) + (rating === "happy" ? 1 : 0);
+    const sadCount = (score.sad_count || 0) + (rating === "sad" ? 1 : 0);
+    score.happy_count = happyCount;
+    score.sad_count = sadCount;
+    const totalRated = happyCount + sadCount;
+    score.happy_rate = totalRated ? Number((happyCount / totalRated).toFixed(4)) : 0;
+    score.sad_rate = totalRated ? Number((sadCount / totalRated).toFixed(4)) : 0;
+
+    score.happy_trail = computeHappyTrail(score);
+    score.tier = computeTier(score, provider);
+  }
+
+  const feedbackRecord = {
+    thought_id: thoughtId,
+    provider_id: providerId,
+    rating,
+    tag,
+    buyer_wallet: buyerWallet,
+    created_at: new Date().toISOString(),
+    held,
+    challenger: Boolean(thought.challenger)
+  };
+
+  await env.FEEDBACK.put(`feedback:${thoughtId}`, JSON.stringify(feedbackRecord));
+  await env.FEEDBACK.put(happyWindowKey, JSON.stringify(happyWindow));
+  await env.SCORES.put(`score:${providerId}`, JSON.stringify(score));
+
+  buyer.last_ratings = { ...lastRatings, [providerId]: feedbackRecord.created_at };
+  await env.BUYERS.put(buyerKey, JSON.stringify(buyer));
+
+  return ok({
+    status: held ? "held" : "applied",
+    thought_id: thoughtId,
+    provider_id: providerId,
+    happy_trail: score.happy_trail,
+    tier: score.tier
+  });
+}
+
 async function handleScore(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const providerId = url.pathname.split("/")[2];
@@ -558,6 +708,8 @@ export default {
         return handleRegister(request, env);
       case "POST /think":
         return handleThink(request, env);
+      case "POST /feedback":
+        return handleFeedback(request, env);
       case "GET /health":
         return ok({
           status: "ok",
