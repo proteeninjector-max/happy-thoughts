@@ -1278,7 +1278,7 @@ async function handleLeaderboard(request: Request, env: Env): Promise<Response> 
     .sort((a, b) => b.score.weekly_delta - a.score.weekly_delta)
     .slice(0, 10)
     .map(({ provider, score }) => ({
-      provider_id: provider.provider_id,
+      provider_id: provider.id,
       name: provider.name,
       weekly_delta: score.weekly_delta,
       happy_trail: score.happy_trail,
@@ -1292,7 +1292,7 @@ async function handleLeaderboard(request: Request, env: Env): Promise<Response> 
     .sort((a, b) => b.score.happy_trail - a.score.happy_trail)
     .slice(0, 10)
     .map(({ provider, score }) => ({
-      provider_id: provider.provider_id,
+      provider_id: provider.id,
       name: provider.name,
       happy_trail: score.happy_trail,
       tier: score.tier,
