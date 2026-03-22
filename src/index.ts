@@ -696,6 +696,57 @@ async function handleDiscover(request: Request, env: Env): Promise<Response> {
   return jsonResponse(providers.slice(0, limit));
 }
 
+async function handleRoute(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const specialty = url.searchParams.get("specialty");
+  const minScore = Number(url.searchParams.get("min_score") ?? "0") || 0;
+  const tier = url.searchParams.get("tier");
+  const verifiedOnly = parseBool(url.searchParams.get("verified_only"));
+  const maxPrice = url.searchParams.get("max_price");
+
+  const list = await env.PROVIDERS.list({ prefix: "provider:" });
+  const providers: any[] = [];
+
+  for (const key of list.keys) {
+    const raw = await env.PROVIDERS.get(key.name);
+    if (!raw) continue;
+    const provider = JSON.parse(raw);
+
+    const scoreRaw = await env.SCORES.get(`score:${provider.id}`);
+    if (!scoreRaw) continue;
+    const score = JSON.parse(scoreRaw);
+
+    if (Array.isArray(score.flags) && score.flags.length > 0) continue;
+    if (specialty && !matchSpecialty(specialty, provider.specialties || [])) continue;
+    if (tier && provider.tier !== tier) continue;
+    if (score.happy_trail < minScore) continue;
+
+    const price = computePrice(score.happy_trail, provider.specialties || []);
+    if (maxPrice && price > Number(maxPrice)) continue;
+
+    const verified = provider.tier === "verified_brain" || provider.tier === "founding_brain";
+    if (verifiedOnly && !verified) continue;
+
+    providers.push({
+      provider_id: provider.id,
+      name: provider.name,
+      specialties: provider.specialties || [],
+      tier: provider.tier,
+      happy_trail: score.happy_trail,
+      price,
+      verified,
+      estimated_confidence: Number((score.happy_trail / 100).toFixed(2))
+    });
+  }
+
+  providers.sort((a, b) => b.happy_trail - a.happy_trail);
+
+  return ok({
+    note: "preview only — call execute",
+    providers: providers.slice(0, 3)
+  });
+}
+
 async function handleRegister(request: Request, env: Env): Promise<Response> {
   const payment = await verifyX402Payment(request, env, 0.25, "Happy Thoughts registration");
   if (!payment.ok) return payment.response;
@@ -817,6 +868,8 @@ export default {
         });
       case "GET /discover":
         return handleDiscover(request, env);
+      case "GET /route":
+        return handleRoute(request, env);
       default:
         return notFound();
     }
