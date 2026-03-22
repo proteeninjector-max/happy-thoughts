@@ -53,7 +53,7 @@ function buildPaymentRequired(
   const network = env.X402_NETWORK || "eip155:8453"; // Base mainnet
   const asset = env.X402_ASSET || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
 
-  const paymentDetails = {
+  const paymentRequirements = {
     scheme: "exact",
     network,
     amount: `$${requiredAmount.toFixed(2)}`,
@@ -69,12 +69,14 @@ function buildPaymentRequired(
 
   const paymentRequired = {
     x402Version: 2,
+    error: undefined,
     resource: {
       url: request.url,
       description,
       mimeType: "application/json"
     },
-    accepts: [paymentDetails]
+    accepts: [paymentRequirements],
+    extensions: undefined
   };
 
   return {
@@ -94,7 +96,7 @@ function extractPayer(paymentPayload: any): string {
 }
 
 function isVerifiedResponse(resp: any): boolean {
-  return resp?.verified === true || resp?.valid === true || resp?.success === true;
+  return resp?.isValid === true;
 }
 
 export async function verifyX402Payment(
@@ -147,8 +149,20 @@ export async function verifyX402Payment(
     };
   }
 
-  const paymentDetails = paymentPayload?.accepted;
-  if (!paymentDetails) {
+  if (paymentPayload?.x402Version !== 2) {
+    const pr = buildPaymentRequired(request, env, requiredAmount, description);
+    return {
+      ok: false,
+      response: jsonResponse(
+        { error: "payment_required", message: "unsupported x402 version", paymentRequired: pr.body },
+        402,
+        { [PAYMENT_REQUIRED_HEADER]: pr.headerValue }
+      )
+    };
+  }
+
+  const paymentRequirements = paymentPayload?.accepted;
+  if (!paymentRequirements) {
     const pr = buildPaymentRequired(request, env, requiredAmount, description);
     return {
       ok: false,
@@ -176,19 +190,23 @@ export async function verifyX402Payment(
   }
 
   // Basic checks before facilitator
-  if (paymentDetails.payTo && paymentDetails.payTo !== env.PROFIT_WALLET) {
+  if (paymentRequirements.payTo && paymentRequirements.payTo !== env.PROFIT_WALLET) {
     return {
       ok: false,
       response: jsonResponse({ error: "payment_invalid", message: "payTo mismatch" }, 402)
     };
   }
 
-  const facilitator = env.X402_FACILITATOR_URL || "https://x402.org";
+  const facilitator = env.X402_FACILITATOR_URL || "https://x402.org/facilitator";
 
   const verifyResp = await fetch(`${facilitator.replace(/\/$/, "")}/verify`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ paymentPayload, paymentDetails })
+    body: JSON.stringify({
+      x402Version: paymentPayload.x402Version,
+      paymentPayload,
+      paymentRequirements
+    })
   });
 
   const verifyJson = await verifyResp.json().catch(() => ({}));
@@ -214,7 +232,7 @@ export async function verifyX402Payment(
     ok: true,
     payer,
     paymentPayload,
-    paymentDetails,
+    paymentDetails: paymentRequirements,
     bypassed: false
   };
 }
