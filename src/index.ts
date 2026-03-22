@@ -1,6 +1,7 @@
 import { verifyX402Payment } from "./middleware/payment";
 import { getDomainDisclaimer } from "./constants/disclaimers";
 import { LEGAL_AUP, LEGAL_PRIVACY, LEGAL_PROVIDER_AGREEMENT, LEGAL_TOS } from "./constants/legal";
+import { LLM_TXT, LLMS_FULL_TXT, OPENAPI_JSON } from "./constants/discovery";
 import { loadScore, updateScore, saveScore } from "./scoring";
 import { runDecay } from "./decay";
 
@@ -76,10 +77,10 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function textResponse(body: string, status = 200): Response {
+function textResponse(body: string, status = 200, headers?: Record<string, string>): Response {
   return new Response(body, {
     status,
-    headers: { "content-type": "text/plain" }
+    headers: { "content-type": "text/plain", ...(headers ?? {}) }
   });
 }
 
@@ -1388,6 +1389,24 @@ export default {
     if (request.method === "GET" && url.pathname.startsWith("/referral/")) {
       const wallet = url.pathname.slice("/referral/".length);
       return handleGetReferral(wallet, env);
+    }
+
+    if (request.method === "GET" && url.pathname === "/llm.txt") {
+      return textResponse(LLM_TXT, 200, { "Cache-Control": "public, max-age=3600" });
+    }
+
+    if (request.method === "GET" && url.pathname === "/llms-full.txt") {
+      return textResponse(LLMS_FULL_TXT, 200, { "Cache-Control": "public, max-age=3600" });
+    }
+
+    if (request.method === "GET" && url.pathname === "/openapi.json") {
+      return new Response(OPENAPI_JSON, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, max-age=3600"
+        }
+      });
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/legal/")) {
