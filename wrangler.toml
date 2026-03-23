@@ -1,7 +1,7 @@
 name = "happythoughts"
 main = "src/index.ts"
 compatibility_date = "2025-03-01"
-account_id = ""
+account_id = "e99a0bfb3b03494b53b2d47adcc9072a"
 workers_dev = true
 
 [vars]
