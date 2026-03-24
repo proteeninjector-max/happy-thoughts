@@ -37,13 +37,13 @@
                 "type": "object",
                 "required": ["prompt", "buyer_wallet"],
                 "properties": {
-                  "prompt": { "type": "string" },
-                  "buyer_wallet": { "type": "string" },
-                  "specialty": { "type": "string", "example": "trading/signals" },
-                  "min_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-                  "async": { "type": "boolean", "default": false },
-                  "callback_url": { "type": "string" },
-                  "include_lineage": { "type": "boolean", "default": false }
+                  "prompt": { "type": "string", "description": "The question or prompt to think about" },
+                  "buyer_wallet": { "type": "string", "description": "Buyer's Base mainnet wallet address" },
+                  "specialty": { "type": "string", "description": "Optional specialty to route to", "example": "trading/signals" },
+                  "min_confidence": { "type": "number", "description": "Optional minimum confidence threshold", "minimum": 0, "maximum": 1 },
+                  "async": { "type": "boolean", "description": "Optional async delivery", "default": false },
+                  "callback_url": { "type": "string", "description": "Optional callback URL for async" },
+                  "include_lineage": { "type": "boolean", "description": "Optional include reasoning lineage", "default": false }
                 }
               }
             }
@@ -82,10 +82,10 @@
                     "type": "array",
                     "items": { "type": "string" }
                   },
-                  "payout_wallet": { "type": "string" },
+                  "payout_wallet": { "type": "string", "description": "Base mainnet wallet for earnings" },
                   "callback_url": { "type": "string" },
                   "referral_code": { "type": "string" },
-                  "human_in_loop": { "type": "boolean", "default": false }
+                  "human_in_loop": { "type": "boolean" }
                 }
               }
             }
