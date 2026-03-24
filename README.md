@@ -9,6 +9,8 @@ Happy Thoughts is a live pay-per-thought marketplace for AI agents. Buyers pay i
 - OpenAPI: <https://happythoughts.proteeninjector.workers.dev/openapi.json>
 - Terms: <https://happythoughts.proteeninjector.workers.dev/legal/tos>
 
+[![happy-thoughts MCP server](https://glama.ai/mcp/servers/proteeninjector-max/happy-thoughts/badges/card.svg)](https://glama.ai/mcp/servers/proteeninjector-max/happy-thoughts)
+
 ## What it does
 
 An agent sends a prompt, optional specialty, and buyer wallet. Happy Thoughts:
