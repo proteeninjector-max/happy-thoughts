@@ -176,11 +176,188 @@ function isOwnerRequest(request: Request, env: Env): boolean {
   return request.headers.get(ownerHeader) === ownerKey;
 }
 
+function getOwnerHeaders(env: Env): HeadersInit {
+  const ownerHeader = env.OWNER_KEY_HEADER || "X-OWNER-KEY";
+  const ownerKey = env.OWNER_KEY;
+  return ownerKey ? { [ownerHeader]: ownerKey } : {};
+}
+
+async function fetchJsonMaybe(url: string, env: Env): Promise<any | null> {
+  try {
+    const resp = await fetch(url, { headers: getOwnerHeaders(env) });
+    if (!resp.ok) return null;
+    const text = await resp.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { raw: text };
+    }
+  } catch {
+    return null;
+  }
+}
+
+function buildTradingContextPrompt(prompt: string, specialty: string, signalData: any, mobyData: any): string {
+  const signalBlock = signalData
+    ? JSON.stringify(signalData, null, 2).slice(0, 4000)
+    : "No fresh signal data available.";
+  const mobyBlock = mobyData
+    ? JSON.stringify(mobyData, null, 2).slice(0, 5000)
+    : "No whale data available.";
+
+  return [
+    "You are Happy Thoughts' first-response trading intelligence provider for benchmark testing.",
+    "Give a sharp, concise first response to the user's question using the supplied signal and whale context.",
+    "Do not pretend data exists if it doesn't. If signal or whale context is stale/missing, say that clearly.",
+    "Focus on: directional bias, whale positioning, signal confirmation/conflict, key caveats, and a practical bottom line.",
+    "Do not over-explain. No markdown tables.",
+    "Return 5 sections in this exact order:",
+    "1. Verdict",
+    "2. Why",
+    "3. Signal Check",
+    "4. Whale Check",
+    "5. Bottom Line",
+    `Specialty: ${specialty}`,
+    `User prompt: ${prompt}`,
+    "Signal context:",
+    signalBlock,
+    "Whale context:",
+    mobyBlock
+  ].join("\n\n");
+}
+
+async function generateTradingThought(prompt: string, specialty: string, env: Env): Promise<{ thought: string; context: any }> {
+  const signalBase = env.SIGNAL_ENDPOINT_BASE || "https://proteeninjector-signal-solana.proteeninjector.workers.dev/signal";
+  const mobyBase = env.MOBY_ENDPOINT_BASE || "https://proteeninjector-moby.proteeninjector.workers.dev/moby";
+
+  const signalTickers = ["BTCUSD.P", "ETHUSD.P", "SOLUSDC.P"];
+  const signalResults = await Promise.all(
+    signalTickers.map(async (ticker) => ({
+      ticker,
+      data: await fetchJsonMaybe(`${signalBase}?ticker=${encodeURIComponent(ticker)}`, env)
+    }))
+  );
+
+  const signalData = signalResults.reduce((acc: Record<string, any>, item) => {
+    acc[item.ticker] = item.data;
+    return acc;
+  }, {});
+  const mobyData = await fetchJsonMaybe(mobyBase, env);
+
+  if (!env.ANTHROPIC_API_KEY) {
+    const fallback = [
+      "Verdict",
+      "Unable to generate benchmark thought because ANTHROPIC_API_KEY is not configured.",
+      "Why",
+      "The internal benchmark path fetched context, but text synthesis is unavailable.",
+      "Signal Check",
+      JSON.stringify(signalData).slice(0, 800),
+      "Whale Check",
+      JSON.stringify(mobyData).slice(0, 800),
+      "Bottom Line",
+      "Context fetch works, synthesis still needs Anthropic enabled."
+    ].join("\n\n");
+    return { thought: fallback, context: { signals: signalData, moby: mobyData } };
+  }
+
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model: env.ANTHROPIC_MODEL || "claude-3-haiku-20240307",
+      max_tokens: 700,
+      system: "You are a specialized crypto trading copilot producing tight first-response trade intelligence.",
+      messages: [{ role: "user", content: buildTradingContextPrompt(prompt, specialty, signalData, mobyData) }]
+    })
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Anthropic trading synthesis failed: ${resp.status}`);
+  }
+
+  const json: any = await resp.json();
+  const thought = json?.content?.map((item: any) => item?.text || "").join("\n").trim();
+  return {
+    thought: thought || "No thought generated.",
+    context: { signals: signalData, moby: mobyData }
+  };
+}
+
 async function handleInternalThink(request: Request, env: Env): Promise<Response> {
   if (!isOwnerRequest(request, env)) {
     return new Response(JSON.stringify({ error: "unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" }
+    });
+  }
+
+  let body: any;
+  try {
+    body = await request.clone().json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
+  const specialty = typeof body?.specialty === "string" ? body.specialty.trim() : "";
+  const benchmarkMode = Boolean(body?.benchmark_mode);
+  const tradingLike = specialty.startsWith("trading/") || specialty.startsWith("crypto/") || /\bbtc\b|\beth\b|\bsol\b|whale|signal|long|short/i.test(prompt);
+
+  if (benchmarkMode || tradingLike) {
+    if (!prompt) return badRequest("prompt is required");
+    if (typeof body?.buyer_wallet !== "string" || !body.buyer_wallet.trim()) {
+      return badRequest("buyer_wallet is required");
+    }
+
+    const resolvedSpecialty = specialty || "trading/thesis";
+    const providerId = "moby-pi-benchmark";
+    const providerScore = 81;
+    const pricePaid = 0;
+    const thoughtId = `ht_${crypto.randomUUID()}`;
+    const disclaimer = getDomainDisclaimer(resolvedSpecialty);
+    const started = Date.now();
+    const generated = await generateTradingThought(prompt, resolvedSpecialty, env);
+    const response_time_ms = Date.now() - started;
+
+    const thoughtRecord = {
+      thought_id: thoughtId,
+      prompt_hash: await sha256Hex(normalizePrompt(prompt)),
+      provider_id: providerId,
+      specialty: resolvedSpecialty,
+      response: generated.thought,
+      disclaimer,
+      cached: false,
+      challenger: false,
+      parent_thought_id: null,
+      timestamp: new Date().toISOString(),
+      buyer_wallet: body.buyer_wallet.trim(),
+      price_paid: pricePaid,
+      confidence: 0.81,
+      response_time_ms,
+      provider_score: providerScore,
+      benchmark_mode: true,
+      context_snapshot: generated.context
+    };
+
+    await env.THOUGHTS.put(`thought:${thoughtId}`, JSON.stringify(thoughtRecord));
+
+    return ok({
+      thought_id: thoughtId,
+      thought: generated.thought,
+      provider_id: providerId,
+      provider_score: providerScore,
+      specialty: resolvedSpecialty,
+      price_paid: pricePaid,
+      cached: false,
+      confidence: 0.81,
+      parent_thought_id: null,
+      disclaimer,
+      benchmark_mode: true,
+      context_snapshot: generated.context
     });
   }
 
@@ -1540,4 +1717,6 @@ export interface Env {
   X402_ASSET?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
+  SIGNAL_ENDPOINT_BASE?: string;
+  MOBY_ENDPOINT_BASE?: string;
 }
