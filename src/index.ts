@@ -199,10 +199,10 @@ async function fetchJsonMaybe(url: string, env: Env): Promise<any | null> {
 
 function buildTradingContextPrompt(prompt: string, specialty: string, signalData: any, mobyData: any): string {
   const signalBlock = signalData
-    ? JSON.stringify(signalData, null, 2).slice(0, 4000)
+    ? JSON.stringify(signalData, null, 2).slice(0, 2000)
     : "No fresh signal data available.";
   const mobyBlock = mobyData
-    ? JSON.stringify(mobyData, null, 2).slice(0, 5000)
+    ? JSON.stringify(mobyData, null, 2).slice(0, 2500)
     : "No whale data available.";
 
   return [
@@ -260,6 +260,9 @@ async function generateTradingThought(prompt: string, specialty: string, env: En
     return { thought: fallback, context: { signals: signalData, moby: mobyData } };
   }
 
+  const benchmarkModel = env.ANTHROPIC_BENCHMARK_MODEL || env.ANTHROPIC_MODEL || "claude-3-haiku-20240307";
+  const benchmarkPrompt = buildTradingContextPrompt(prompt, specialty, signalData, mobyData);
+
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -268,15 +271,21 @@ async function generateTradingThought(prompt: string, specialty: string, env: En
       "anthropic-version": "2023-06-01"
     },
     body: JSON.stringify({
-      model: env.ANTHROPIC_MODEL || "claude-3-haiku-20240307",
-      max_tokens: 700,
+      model: benchmarkModel,
+      max_tokens: 500,
       system: "You are a specialized crypto trading copilot producing tight first-response trade intelligence.",
-      messages: [{ role: "user", content: buildTradingContextPrompt(prompt, specialty, signalData, mobyData) }]
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: benchmarkPrompt }]
+        }
+      ]
     })
   });
 
   if (!resp.ok) {
-    throw new Error(`Anthropic trading synthesis failed: ${resp.status}`);
+    const errorText = await resp.text();
+    throw new Error(`Anthropic trading synthesis failed: ${resp.status} ${errorText.slice(0, 300)}`);
   }
 
   const json: any = await resp.json();
@@ -1745,6 +1754,7 @@ export interface Env {
   X402_ASSET?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
+  ANTHROPIC_BENCHMARK_MODEL?: string;
   SIGNAL_ENDPOINT_BASE?: string;
   MOBY_ENDPOINT_BASE?: string;
 }
