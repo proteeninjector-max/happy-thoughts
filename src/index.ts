@@ -320,7 +320,33 @@ async function handleInternalThink(request: Request, env: Env): Promise<Response
     const thoughtId = `ht_${crypto.randomUUID()}`;
     const disclaimer = getDomainDisclaimer(resolvedSpecialty);
     const started = Date.now();
-    const generated = await generateTradingThought(prompt, resolvedSpecialty, env);
+
+    let generated: { thought: string; context: any };
+    let benchmarkError: string | null = null;
+    try {
+      generated = await generateTradingThought(prompt, resolvedSpecialty, env);
+    } catch (err: any) {
+      benchmarkError = err?.message || String(err);
+      generated = {
+        thought: [
+          "Verdict",
+          "Unable to complete the full benchmark synthesis right now.",
+          "Why",
+          "The internal benchmark path hit an upstream error while combining signal and whale context.",
+          "Signal Check",
+          "Signal context fetch may be missing, stale, or upstream returned an unexpected response.",
+          "Whale Check",
+          "Whale context may still be available, but synthesis failed before a full answer could be built.",
+          "Bottom Line",
+          "Benchmark plumbing is reachable, but this run fell back because an upstream dependency choked."
+        ].join("\n\n"),
+        context: {
+          signals: null,
+          moby: null,
+          benchmark_error: benchmarkError
+        }
+      };
+    }
     const response_time_ms = Date.now() - started;
 
     const thoughtRecord = {
@@ -340,6 +366,7 @@ async function handleInternalThink(request: Request, env: Env): Promise<Response
       response_time_ms,
       provider_score: providerScore,
       benchmark_mode: true,
+      benchmark_error: benchmarkError,
       context_snapshot: generated.context
     };
 
@@ -357,6 +384,7 @@ async function handleInternalThink(request: Request, env: Env): Promise<Response
       parent_thought_id: null,
       disclaimer,
       benchmark_mode: true,
+      benchmark_error: benchmarkError,
       context_snapshot: generated.context
     });
   }
