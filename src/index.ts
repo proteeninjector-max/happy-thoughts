@@ -1690,6 +1690,17 @@ export default {
     const url = new URL(request.url);
     const routeKey = `${request.method} ${url.pathname}`;
 
+    if (request.method === "GET" && url.pathname === "/health/providers") {
+      const ids = ["pi_signals", "moby_dick", "pi_thesis", "claude_haiku"];
+      const results: Record<string, any> = {};
+      for (const id of ids) {
+        const p = await env.PROVIDERS.get(`provider:${id}`);
+        const s = await env.SCORES.get(`score:${id}`);
+        results[id] = { provider: !!p, score: !!s };
+      }
+      return jsonResponse({ results, founding_map: Object.keys(FOUNDING_PROVIDER_MAP) });
+    }
+
     if (request.method === "GET" && url.pathname.startsWith("/score/")) {
       return handleScore(request, env);
     }
