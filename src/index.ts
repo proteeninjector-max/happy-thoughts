@@ -71,6 +71,15 @@ const SPECIALTY_LEAVES = new Set([
   "other/general"
 ]);
 
+const FOUNDING_PROVIDER_MAP: Record<string, string> = {
+  "trading/signals": "pi_signals",
+  "trading/risk": "pi_signals",
+  "trading/defi": "pi_signals",
+  "crypto/whale-tracking": "moby_dick",
+  "crypto/onchain-analysis": "moby_dick",
+  "trading/thesis": "pi_thesis"
+};
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -666,23 +675,39 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     }
   }
 
-  const list = await env.PROVIDERS.list({ prefix: "provider:" });
   const candidates: any[] = [];
+  const foundingProviderId = FOUNDING_PROVIDER_MAP[specialty];
 
-  for (const key of list.keys) {
-    const raw = await env.PROVIDERS.get(key.name);
-    if (!raw) continue;
-    const provider = JSON.parse(raw);
+  if (foundingProviderId) {
+    const providerRaw = await env.PROVIDERS.get(`provider:${foundingProviderId}`);
+    const scoreRaw = await env.SCORES.get(`score:${foundingProviderId}`);
 
-    if (!matchSpecialty(specialty, provider.specialties || [])) continue;
+    if (providerRaw && scoreRaw) {
+      const provider = JSON.parse(providerRaw);
+      const score = JSON.parse(scoreRaw);
 
-    const scoreRaw = await env.SCORES.get(`score:${provider.id}`);
-    if (!scoreRaw) continue;
-    const score = JSON.parse(scoreRaw);
+      if (!Array.isArray(score.flags) || score.flags.length === 0) {
+        candidates.push({ provider, score });
+      }
+    }
+  } else {
+    const list = await env.PROVIDERS.list({ prefix: "provider:" });
 
-    if (Array.isArray(score.flags) && score.flags.length > 0) continue;
+    for (const key of list.keys) {
+      const raw = await env.PROVIDERS.get(key.name);
+      if (!raw) continue;
+      const provider = JSON.parse(raw);
 
-    candidates.push({ provider, score });
+      if (!matchSpecialty(specialty, provider.specialties || [])) continue;
+
+      const scoreRaw = await env.SCORES.get(`score:${provider.id}`);
+      if (!scoreRaw) continue;
+      const score = JSON.parse(scoreRaw);
+
+      if (Array.isArray(score.flags) && score.flags.length > 0) continue;
+
+      candidates.push({ provider, score });
+    }
   }
 
   if (candidates.length === 0) {
