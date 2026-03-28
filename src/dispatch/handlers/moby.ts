@@ -52,6 +52,7 @@ function parseFlowStrength(payload: any): FlowStrength {
 function getPayloadState(payload: any): MobyPayloadState {
   if (!payload || typeof payload !== "object") return "malformed";
   if (payload?.x402Version || payload?.error === "Payment required") return "payment_required";
+  if (payload?.fetch_error) return "malformed";
   if (typeof payload.raw === "string") return "malformed";
   return "ok";
 }
@@ -128,7 +129,12 @@ export const mobyHandler: InternalProviderHandler = {
           upstream_payment_required: state === "payment_required",
           owner_header_name: env.OWNER_KEY_HEADER || "X-OWNER-KEY",
           owner_key_present: Boolean(env.OWNER_KEY),
-          payload_top_level_keys: payload && typeof payload === "object" ? Object.keys(payload).slice(0, 12) : []
+          payload_top_level_keys: payload && typeof payload === "object" ? Object.keys(payload).slice(0, 12) : [],
+          upstream_status: payload?.fetch_error ? payload?.status ?? null : null,
+          upstream_status_text: payload?.fetch_error ? payload?.statusText ?? null : null,
+          upstream_raw: payload?.fetch_error ? payload?.raw ?? null : null,
+          upstream_thrown: payload?.fetch_error ? payload?.thrown ?? false : false,
+          upstream_error: payload?.fetch_error ? payload?.error ?? null : null
         }
       };
     } catch (error: any) {
