@@ -68,3 +68,67 @@ preview_id = "0f8290d5012a43d3993d72e3e2160be4"
 
 [triggers]
 crons = ["0 6 * * *"]
+
+[env.dev]
+name = "happythoughts-dev"
+workers_dev = true
+
+[env.dev.vars]
+PROFIT_WALLET = "0x170992058429d3d52615fef70c1006f5e5d6467c"
+OWNER_KEY_HEADER = "X-OWNER-KEY"
+X402_FACILITATOR_URL = "https://x402.org/facilitator"
+X402_NETWORK = "eip155:8453"
+X402_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+[[env.dev.kv_namespaces]]
+binding = "PROVIDERS"
+id = "620f82cd87f04e5a8512323d9cdab470"
+preview_id = "620f82cd87f04e5a8512323d9cdab470"
+
+[[env.dev.kv_namespaces]]
+binding = "SCORES"
+id = "7696416b0c1442fb9f7114e62704befc"
+preview_id = "7696416b0c1442fb9f7114e62704befc"
+
+[[env.dev.kv_namespaces]]
+binding = "THOUGHTS"
+id = "725722116bb2452ca63c8ae7517da6ce"
+preview_id = "725722116bb2452ca63c8ae7517da6ce"
+
+[[env.dev.kv_namespaces]]
+binding = "CACHE"
+id = "6c0b05139f424dc9bdefe8a59e400a58"
+preview_id = "6c0b05139f424dc9bdefe8a59e400a58"
+
+[[env.dev.kv_namespaces]]
+binding = "BUNDLES"
+id = "f9c87f086d684d04980c2d9638a2b3d8"
+preview_id = "f9c87f086d684d04980c2d9638a2b3d8"
+
+[[env.dev.kv_namespaces]]
+binding = "BUYERS"
+id = "b087ab26d9d54ccba28b3cd8a630d245"
+preview_id = "b087ab26d9d54ccba28b3cd8a630d245"
+
+[[env.dev.kv_namespaces]]
+binding = "FEEDBACK"
+id = "023d96437a6540e0a0de3c291b3a7675"
+preview_id = "023d96437a6540e0a0de3c291b3a7675"
+
+[[env.dev.kv_namespaces]]
+binding = "FLAGS"
+id = "6ba8e325a0184fe5b55b1e7364f18a73"
+preview_id = "6ba8e325a0184fe5b55b1e7364f18a73"
+
+[[env.dev.kv_namespaces]]
+binding = "REFERRALS"
+id = "9dc1fe3f540342be8453318eaaced448"
+preview_id = "9dc1fe3f540342be8453318eaaced448"
+
+[[env.dev.kv_namespaces]]
+binding = "AGREEMENTS"
+id = "23fb613b4cb64cfa8bb34585cebae8bf"
+preview_id = "23fb613b4cb64cfa8bb34585cebae8bf"
+
+[env.dev.triggers]
+crons = ["0 6 * * *"]

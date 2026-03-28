@@ -4,19 +4,46 @@ import { join } from "node:path";
 const ROOT = process.cwd();
 const WRANGLER_PATH = join(ROOT, "wrangler.toml");
 
+type CliOptions = {
+  env?: string;
+};
+
+function parseCliOptions(argv: string[]): CliOptions {
+  const options: CliOptions = {};
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--env") {
+      options.env = argv[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--env=")) {
+      options.env = arg.slice("--env=".length);
+    }
+  }
+
+  return options;
+}
+
 function parseTomlString(source: string, key: string): string | null {
   const match = source.match(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m"));
   return match ? match[1] : null;
 }
 
-function parseKvBindings(source: string): Record<string, string> {
+function parseKvBindings(source: string, envName?: string): Record<string, string> {
   const lines = source.split(/\r?\n/);
   const out: Record<string, string> = {};
   let currentBinding: string | null = null;
+  const targetSection = envName ? `[[env.${envName}.kv_namespaces]]` : "[[kv_namespaces]]";
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (line === "[[kv_namespaces]]") {
+    if (line === targetSection) {
+      currentBinding = null;
+      continue;
+    }
+    if (line.startsWith("[[") && line !== targetSection) {
       currentBinding = null;
       continue;
     }
@@ -235,9 +262,10 @@ async function putKv(
 }
 
 async function main() {
+  const options = parseCliOptions(process.argv.slice(2));
   const toml = readFileSync(WRANGLER_PATH, "utf8");
   const accountId = parseTomlString(toml, "account_id");
-  const kv = parseKvBindings(toml);
+  const kv = parseKvBindings(toml, options.env);
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 
   if (!accountId) {
@@ -247,7 +275,9 @@ async function main() {
     throw new Error("CLOUDFLARE_API_TOKEN is not set in the environment");
   }
   if (!kv.PROVIDERS || !kv.SCORES) {
-    throw new Error("Could not find PROVIDERS and SCORES namespace IDs in wrangler.toml");
+    throw new Error(
+      `Could not find PROVIDERS and SCORES namespace IDs in wrangler.toml${options.env ? ` for env ${options.env}` : ""}`
+    );
   }
 
   const now = new Date().toISOString();
@@ -255,6 +285,7 @@ async function main() {
   let failCount = 0;
 
   console.log(`Using account_id=${accountId}`);
+  console.log(`Target env=${options.env ?? "default"}`);
   console.log(`PROVIDERS namespace=${kv.PROVIDERS}`);
   console.log(`SCORES namespace=${kv.SCORES}`);
   console.log(`Seeding ${SEED_PROVIDERS.length} founding providers...`);
@@ -300,7 +331,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error("Fatal error while seeding production KV:");
+  console.error(`Fatal error while seeding ${parseCliOptions(process.argv.slice(2)).env ?? "default"} KV:`);
   console.error(error);
   process.exit(1);
 });
