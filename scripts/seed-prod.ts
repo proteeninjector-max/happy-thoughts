@@ -41,9 +41,11 @@ type ProviderRecord = {
   description: string;
   specialties: string[];
   payout_wallet: string | null;
-  callback_url: null;
+  callback_url: string;
   referral_code: null;
   human_in_loop: boolean;
+  sla_ms: number;
+  internal_provider: boolean;
   tier: "founding_brain";
   created_at: string;
 };
@@ -71,11 +73,11 @@ type SeedItem = {
 
 const SEED_PROVIDERS: SeedItem[] = [
   {
-    id: "founding-claude-haiku",
+    id: "claude_haiku",
     provider: {
-      id: "founding-claude-haiku",
+      id: "claude_haiku",
       name: "Claude Haiku General",
-      description: "Founding Brain provider",
+      description: "Internal generalist provider for uncategorized and broad-domain prompts.",
       specialties: [
         "other/general",
         "creative/writing",
@@ -93,10 +95,12 @@ const SEED_PROVIDERS: SeedItem[] = [
         "wellness/diet",
         "wellness/recovery"
       ],
-      payout_wallet: null,
-      callback_url: null,
+      payout_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+      callback_url: "internal://claude_haiku",
       referral_code: null,
       human_in_loop: false,
+      sla_ms: 6000,
+      internal_provider: true,
       tier: "founding_brain"
     },
     score: {
@@ -114,16 +118,19 @@ const SEED_PROVIDERS: SeedItem[] = [
     }
   },
   {
-    id: "founding-moby-dick",
+    id: "moby_dick",
     provider: {
-      id: "founding-moby-dick",
+      id: "moby_dick",
       name: "Moby Dick Whale Tracker",
-      description: "Founding Brain provider",
-      specialties: ["crypto/whale-tracking", "crypto/onchain-analysis", "trading/thesis"],
-      payout_wallet: null,
-      callback_url: null,
+      description:
+        "Internal whale-tracking provider. Fetches whale flow and positioning context for crypto market answers.",
+      specialties: ["crypto/whale-tracking", "crypto/onchain-analysis"],
+      payout_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+      callback_url: "internal://moby",
       referral_code: null,
       human_in_loop: false,
+      sla_ms: 4000,
+      internal_provider: true,
       tier: "founding_brain"
     },
     score: {
@@ -141,16 +148,19 @@ const SEED_PROVIDERS: SeedItem[] = [
     }
   },
   {
-    id: "founding-pi-signals",
+    id: "pi_signals",
     provider: {
-      id: "founding-pi-signals",
+      id: "pi_signals",
       name: "PI Signals",
-      description: "Founding Brain provider",
+      description:
+        "Internal signal provider. Reads latest V3 signal data and returns structured trading signal answers.",
       specialties: ["trading/signals", "trading/risk", "trading/defi"],
-      payout_wallet: null,
-      callback_url: null,
+      payout_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+      callback_url: "internal://pi_signals",
       referral_code: null,
       human_in_loop: false,
+      sla_ms: 4000,
+      internal_provider: true,
       tier: "founding_brain"
     },
     score: {
@@ -168,24 +178,26 @@ const SEED_PROVIDERS: SeedItem[] = [
     }
   },
   {
-    id: "founding-proteenclaw",
+    id: "pi_thesis",
     provider: {
-      id: "founding-proteenclaw",
-      name: "Proteenclaw",
+      id: "pi_thesis",
+      name: "PI Thesis",
       description:
-        "AI agent specializing in social shilling, meme creation, crypto whale tracking, and market commentary",
-      specialties: ["social/shill", "social/meme", "social/thread", "crypto/whale-tracking"],
+        "Internal synthesis provider. Calls PI Signals and Moby internally, then returns a unified trading thesis.",
+      specialties: ["trading/thesis"],
       payout_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
-      callback_url: null,
+      callback_url: "internal://pi_thesis",
       referral_code: null,
       human_in_loop: false,
+      sla_ms: 5000,
+      internal_provider: true,
       tier: "founding_brain"
     },
     score: {
-      happy_trail: 78,
-      quality: 78,
-      reliability: 78,
-      trust: 78,
+      happy_trail: 80,
+      quality: 80,
+      reliability: 80,
+      trust: 80,
       total_thoughts: 0,
       rated_thoughts: 0,
       happy_rate: 0,
