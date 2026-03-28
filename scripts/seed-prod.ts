@@ -35,16 +35,17 @@ function parseKvBindings(source: string, envName?: string): Record<string, strin
   const lines = source.split(/\r?\n/);
   const out: Record<string, string> = {};
   let currentBinding: string | null = null;
+  let inTargetSection = false;
   const targetSection = envName ? `[[env.${envName}.kv_namespaces]]` : "[[kv_namespaces]]";
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (line === targetSection) {
+    if (line.startsWith("[[")) {
+      inTargetSection = line === targetSection;
       currentBinding = null;
       continue;
     }
-    if (line.startsWith("[[") && line !== targetSection) {
-      currentBinding = null;
+    if (!inTargetSection) {
       continue;
     }
     const bindingMatch = line.match(/^binding\s*=\s*"([^"]+)"$/);
