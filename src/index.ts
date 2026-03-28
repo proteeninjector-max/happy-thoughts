@@ -127,7 +127,7 @@ function getDomainMultiplier(specialties: string[]): number {
 function computePrice(happyTrail: number, specialties: string[]): number {
   const multiplier = getDomainMultiplier(specialties);
   const base = 0.01 + 0.19 * (happyTrail / 100);
-  return Number((base * multiplier).toFixed(4));
+  return Math.min(0.2, Number((base * multiplier).toFixed(4)));
 }
 
 function round2(v: number) {
@@ -556,13 +556,15 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     const ttlMs = getCacheTtlMs(cached.specialty || specialty);
     if (cachedAt && Date.now() - cachedAt <= ttlMs) {
       const cachedPrice = Number((cached.price_paid * 0.6).toFixed(4));
-      const payment = await verifyX402Payment(
-        request,
-        env,
-        cachedPrice,
-        "Happy Thoughts cached thought"
-      );
-      if (!payment.ok) return payment.response;
+      if (!isOwnerRequest(request, env)) {
+        const payment = await verifyX402Payment(
+          request,
+          env,
+          cachedPrice,
+          "Happy Thoughts cached thought"
+        );
+        if (!payment.ok) return payment.response;
+      }
 
       const thoughtId = `ht_${crypto.randomUUID()}`;
       const disclaimer = getDomainDisclaimer(cached.specialty || specialty);
@@ -718,8 +720,10 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   const score = selected.score;
 
   const price = computePrice(score.happy_trail, provider.specialties || []);
-  const payment = await verifyX402Payment(request, env, price, "Happy Thoughts thought");
-  if (!payment.ok) return payment.response;
+  if (!isOwnerRequest(request, env)) {
+    const payment = await verifyX402Payment(request, env, price, "Happy Thoughts thought");
+    if (!payment.ok) return payment.response;
+  }
 
   const thoughtId = `ht_${crypto.randomUUID()}`;
   const disclaimer = getDomainDisclaimer(specialty);
