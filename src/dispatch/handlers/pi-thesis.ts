@@ -1,4 +1,4 @@
-import { dispatchInternalByKey } from "../internal";
+import { dispatchInternalByKey } from "../executor";
 import type { DispatchRequest, DispatchResponse, ProviderRecord, InternalProviderHandler } from "../types";
 
 function buildComposedProvider(base: ProviderRecord, id: ProviderRecord["id"], callback_url: string): ProviderRecord {
