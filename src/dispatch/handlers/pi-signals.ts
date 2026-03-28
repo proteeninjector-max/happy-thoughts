@@ -146,36 +146,58 @@ export const piSignalsHandler: InternalProviderHandler = {
   key: "pi_signals",
   async execute(req: DispatchRequest, env: Env): Promise<DispatchResponse> {
     const startedAt = Date.now();
-    const signalBase =
-      env.SIGNAL_ENDPOINT_BASE || "https://proteeninjector-signal-solana.proteeninjector.workers.dev/signal";
 
-    const results = await Promise.all(
-      SIGNAL_TICKERS.map(async (ticker) => ({
-        ticker,
-        payload: await fetchJsonMaybe(`${signalBase}?ticker=${encodeURIComponent(ticker)}`, env)
-      }))
-    );
+    try {
+      const signalBase =
+        env.SIGNAL_ENDPOINT_BASE || "https://proteeninjector-signal-solana.proteeninjector.workers.dev/signal";
 
-    const summaries = results.map(({ ticker, payload }) => summarizeSignal(ticker, payload));
-    const best = selectBestSignal(summaries);
-    const answer = buildAnswer(req, summaries, best);
-    const confidence = best?.confidence ?? 0.15;
+      const results = await Promise.all(
+        SIGNAL_TICKERS.map(async (ticker) => ({
+          ticker,
+          payload: await fetchJsonMaybe(`${signalBase}?ticker=${encodeURIComponent(ticker)}`, env)
+        }))
+      );
 
-    return {
-      answer,
-      confidence,
-      handler: "internal://pi_signals",
-      response_time_ms: Date.now() - startedAt,
-      meta: {
-        source: "v3_signal",
-        specialty: req.specialty,
-        tickers_checked: SIGNAL_TICKERS,
-        best_ticker: best?.ticker ?? null,
-        signal_found: Boolean(best),
-        signal_age_ms: best?.age_ms ?? null,
-        bias: best?.bias ?? "neutral",
-        caveats: best?.stale ? ["signal data stale"] : []
-      }
-    };
+      const summaries = results.map(({ ticker, payload }) => summarizeSignal(ticker, payload));
+      const best = selectBestSignal(summaries);
+      const answer = buildAnswer(req, summaries, best);
+      const confidence = best?.confidence ?? 0.15;
+
+      return {
+        answer,
+        confidence,
+        handler: "internal://pi_signals",
+        response_time_ms: Date.now() - startedAt,
+        meta: {
+          source: "v3_signal",
+          specialty: req.specialty,
+          tickers_checked: SIGNAL_TICKERS,
+          best_ticker: best?.ticker ?? null,
+          signal_found: Boolean(best),
+          signal_age_ms: best?.age_ms ?? null,
+          bias: best?.bias ?? "neutral",
+          caveats: best?.stale ? ["signal data stale"] : []
+        }
+      };
+    } catch (error: any) {
+      return {
+        answer: [
+          `Signal lane: ${req.specialty}.`,
+          "Signal data is temporarily unavailable, so this response is degraded.",
+          "No trade-quality signal can be confirmed until the upstream signal feed recovers."
+        ].join("\n"),
+        confidence: 0.1,
+        handler: "internal://pi_signals",
+        response_time_ms: Date.now() - startedAt,
+        meta: {
+          source: "v3_signal",
+          specialty: req.specialty,
+          degraded: true,
+          bias: "neutral",
+          caveats: ["signal handler error"],
+          error: error?.message || String(error)
+        }
+      };
+    }
   }
 };

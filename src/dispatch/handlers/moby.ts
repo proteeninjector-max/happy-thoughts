@@ -82,32 +82,56 @@ export const mobyHandler: InternalProviderHandler = {
   key: "moby",
   async execute(req: DispatchRequest, env: Env): Promise<DispatchResponse> {
     const startedAt = Date.now();
-    const mobyBase = env.MOBY_ENDPOINT_BASE || "https://proteeninjector-moby.proteeninjector.workers.dev/moby";
 
-    const payload = await fetchJsonMaybe(mobyBase, env);
-    const malformed = !payloadLooksUsable(payload);
-    const whale_bias = malformed ? "neutral" : parseWhaleBias(payload);
-    const flow_strength = malformed ? "low" : parseFlowStrength(payload);
-    const confidence = malformed ? 0.2 : whale_bias === "mixed" || whale_bias === "neutral" ? 0.45 : 0.62;
-    const caveats = malformed
-      ? ["Whale data unavailable or malformed — thesis based on signal data only."]
-      : whale_bias === "mixed" || whale_bias === "neutral"
-        ? ["Whale positioning is not giving a clean directional edge."]
-        : [];
+    try {
+      const mobyBase = env.MOBY_ENDPOINT_BASE || "https://proteeninjector-moby.proteeninjector.workers.dev/moby";
 
-    return {
-      answer: buildMobyAnswer(whale_bias, flow_strength, malformed),
-      confidence,
-      handler: "internal://moby",
-      response_time_ms: Date.now() - startedAt,
-      meta: {
-        source: "moby",
-        specialty: req.specialty,
-        whale_bias,
-        flow_strength,
-        caveats,
-        malformed_payload: malformed
-      }
-    };
+      const payload = await fetchJsonMaybe(mobyBase, env);
+      const malformed = !payloadLooksUsable(payload);
+      const whale_bias = malformed ? "neutral" : parseWhaleBias(payload);
+      const flow_strength = malformed ? "low" : parseFlowStrength(payload);
+      const confidence = malformed ? 0.2 : whale_bias === "mixed" || whale_bias === "neutral" ? 0.45 : 0.62;
+      const caveats = malformed
+        ? ["Whale data unavailable or malformed — thesis based on signal data only."]
+        : whale_bias === "mixed" || whale_bias === "neutral"
+          ? ["Whale positioning is not giving a clean directional edge."]
+          : [];
+
+      return {
+        answer: buildMobyAnswer(whale_bias, flow_strength, malformed),
+        confidence,
+        handler: "internal://moby",
+        response_time_ms: Date.now() - startedAt,
+        meta: {
+          source: "moby",
+          specialty: req.specialty,
+          whale_bias,
+          flow_strength,
+          caveats,
+          malformed_payload: malformed
+        }
+      };
+    } catch (error: any) {
+      return {
+        answer: [
+          `Whale flow lane: ${req.specialty}.`,
+          "Whale data is temporarily unavailable, so this response is degraded.",
+          "No reliable whale positioning summary can be confirmed until the upstream feed recovers."
+        ].join("\n"),
+        confidence: 0.1,
+        handler: "internal://moby",
+        response_time_ms: Date.now() - startedAt,
+        meta: {
+          source: "moby",
+          specialty: req.specialty,
+          degraded: true,
+          whale_bias: "neutral",
+          flow_strength: "low",
+          caveats: ["moby handler error"],
+          malformed_payload: true,
+          error: error?.message || String(error)
+        }
+      };
+    }
   }
 };

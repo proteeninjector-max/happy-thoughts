@@ -90,72 +90,95 @@ export const piThesisHandler: InternalProviderHandler = {
   key: "pi_thesis",
   async execute(req: DispatchRequest, env: Env): Promise<DispatchResponse> {
     const startedAt = Date.now();
-    const signalProvider = buildComposedProvider(req.provider, "pi_signals", "internal://pi_signals");
-    const mobyProvider = buildComposedProvider(req.provider, "moby_dick", "internal://moby");
 
-    const signalResult = await dispatchInternalByKey(
-      "pi_signals",
-      {
-        ...req,
-        provider: signalProvider,
-        specialty: "trading/signals"
-      },
-      env
-    );
+    try {
+      const signalProvider = buildComposedProvider(req.provider, "pi_signals", "internal://pi_signals");
+      const mobyProvider = buildComposedProvider(req.provider, "moby_dick", "internal://moby");
 
-    const mobyResult = await dispatchInternalByKey(
-      "moby",
-      {
-        ...req,
-        provider: mobyProvider,
-        specialty: "crypto/whale-tracking"
-      },
-      env
-    );
+      const signalResult = await dispatchInternalByKey(
+        "pi_signals",
+        {
+          ...req,
+          provider: signalProvider,
+          specialty: "trading/signals"
+        },
+        env
+      );
 
-    const signalBias = getSignalBias(signalResult);
-    const whaleBias = getWhaleBias(mobyResult);
-    const signalThesisBias = signalBiasToThesisBias(signalBias);
-    const hasConflict =
-      signalThesisBias !== "neutral" &&
-      whaleBias !== "neutral" &&
-      whaleBias !== "mixed" &&
-      signalThesisBias !== whaleBias;
-    const thesisBias = buildBias(signalBias, whaleBias);
-    const blendedConfidence = Math.max(
-      0,
-      Math.min(1, signalResult.confidence * 0.6 + mobyResult.confidence * 0.4)
-    );
+      const mobyResult = await dispatchInternalByKey(
+        "moby",
+        {
+          ...req,
+          provider: mobyProvider,
+          specialty: "crypto/whale-tracking"
+        },
+        env
+      );
 
-    return {
-      answer: buildThesisAnswer(req, signalResult, mobyResult, thesisBias, hasConflict, blendedConfidence),
-      confidence: blendedConfidence,
-      handler: "internal://pi_thesis",
-      response_time_ms: Date.now() - startedAt,
-      meta: {
-        source: "pi_thesis",
-        thesis_bias: thesisBias,
-        signal_bias: signalBias,
-        whale_bias: whaleBias,
-        conflict: hasConflict,
-        caveats: [
-          ...(hasConflict ? ["signal and whale bias conflict"] : []),
-          ...(mobyResult.meta?.malformed_payload === true
-            ? ["Whale data unavailable or malformed — thesis based on signal data only."]
-            : [])
-        ],
-        components: {
-          pi_signals: {
-            confidence: signalResult.confidence,
-            handler: signalResult.handler
-          },
-          moby: {
-            confidence: mobyResult.confidence,
-            handler: mobyResult.handler
+      const signalBias = getSignalBias(signalResult);
+      const whaleBias = getWhaleBias(mobyResult);
+      const signalThesisBias = signalBiasToThesisBias(signalBias);
+      const hasConflict =
+        signalThesisBias !== "neutral" &&
+        whaleBias !== "neutral" &&
+        whaleBias !== "mixed" &&
+        signalThesisBias !== whaleBias;
+      const thesisBias = buildBias(signalBias, whaleBias);
+      const blendedConfidence = Math.max(
+        0,
+        Math.min(1, signalResult.confidence * 0.6 + mobyResult.confidence * 0.4)
+      );
+
+      return {
+        answer: buildThesisAnswer(req, signalResult, mobyResult, thesisBias, hasConflict, blendedConfidence),
+        confidence: blendedConfidence,
+        handler: "internal://pi_thesis",
+        response_time_ms: Date.now() - startedAt,
+        meta: {
+          source: "pi_thesis",
+          thesis_bias: thesisBias,
+          signal_bias: signalBias,
+          whale_bias: whaleBias,
+          conflict: hasConflict,
+          caveats: [
+            ...(hasConflict ? ["signal and whale bias conflict"] : []),
+            ...(mobyResult.meta?.malformed_payload === true
+              ? ["Whale data unavailable or malformed — thesis based on signal data only."]
+              : [])
+          ],
+          components: {
+            pi_signals: {
+              confidence: signalResult.confidence,
+              handler: signalResult.handler
+            },
+            moby: {
+              confidence: mobyResult.confidence,
+              handler: mobyResult.handler
+            }
           }
         }
-      }
-    };
+      };
+    } catch (error: any) {
+      return {
+        answer: [
+          `Trading thesis lane: ${req.specialty}.`,
+          "Thesis synthesis is temporarily unavailable, so this response is degraded.",
+          "Use direct signal and whale routes until the synthesis path recovers."
+        ].join("\n"),
+        confidence: 0.1,
+        handler: "internal://pi_thesis",
+        response_time_ms: Date.now() - startedAt,
+        meta: {
+          source: "pi_thesis",
+          specialty: req.specialty,
+          degraded: true,
+          thesis_bias: "neutral",
+          conflict: false,
+          caveats: ["pi_thesis handler error"],
+          error: error?.message || String(error)
+        }
+      };
+    }
   }
 };
 
