@@ -4,6 +4,7 @@ import { LEGAL_AUP, LEGAL_PRIVACY, LEGAL_PROVIDER_AGREEMENT, LEGAL_TOS } from ".
 import { LLM_TXT, LLMS_FULL_TXT, OPENAPI_JSON } from "./constants/discovery";
 import { loadScore, updateScore, saveScore } from "./scoring";
 import { runDecay } from "./decay";
+import { dispatchProvider } from "./dispatch";
 
 const SPECIALTY_LEAVES = new Set([
   "trading/signals",
@@ -720,12 +721,21 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   const payment = await verifyX402Payment(request, env, price, "Happy Thoughts thought");
   if (!payment.ok) return payment.response;
 
-  const confidence = Math.max(0, Math.min(1, score.happy_trail / 100));
-  const t0 = Date.now();
-  const thought = provider.description || `Thought from ${provider.name}`;
-  const response_time_ms = Date.now() - t0;
   const thoughtId = `ht_${crypto.randomUUID()}`;
   const disclaimer = getDomainDisclaimer(specialty);
+  const dispatchResult = await dispatchProvider(
+    {
+      provider,
+      prompt,
+      specialty,
+      buyer_wallet: buyerWallet,
+      thought_id: thoughtId
+    },
+    env
+  );
+  const thought = dispatchResult.answer;
+  const confidence = dispatchResult.confidence;
+  const response_time_ms = dispatchResult.response_time_ms;
 
   const thoughtRecord = {
     thought_id: thoughtId,
@@ -743,6 +753,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     confidence,
     response_time_ms,
     provider_score: score.happy_trail,
+    provider_meta: dispatchResult.meta ?? null,
     revenue_split: {
       broker_wallet: env.PROFIT_WALLET,
       broker_amount: Number((price * 0.3).toFixed(4)),
@@ -829,8 +840,10 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     price_paid: price,
     cached: false,
     confidence,
+    response_time_ms,
     parent_thought_id: null,
-    disclaimer
+    disclaimer,
+    meta: dispatchResult.meta ?? null
   });
 }
 
