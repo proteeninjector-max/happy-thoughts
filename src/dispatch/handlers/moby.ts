@@ -97,7 +97,7 @@ export const mobyHandler: InternalProviderHandler = {
     const startedAt = Date.now();
 
     try {
-      const mobyBase = env.MOBY_ENDPOINT_BASE || "https://proteeninjector-moby.proteeninjector.workers.dev/moby";
+      const mobyBase = env.MOBY_ENDPOINT_BASE || "https://moby.proteeninjector.com/moby";
 
       const payload = await fetchJsonMaybe(mobyBase, env);
       const state = getPayloadState(payload);
