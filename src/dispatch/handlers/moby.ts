@@ -1,29 +1,9 @@
 import type { Env } from "../../index";
 import type { DispatchRequest, DispatchResponse, InternalProviderHandler } from "../types";
+import { fetchJsonMaybe } from "../utils";
 
 type WhaleBias = "bullish" | "bearish" | "mixed" | "neutral";
 type FlowStrength = "low" | "medium" | "high";
-
-function getOwnerHeaders(env: Env): HeadersInit {
-  const ownerHeader = env.OWNER_KEY_HEADER || "X-OWNER-KEY";
-  const ownerKey = env.OWNER_KEY;
-  return ownerKey ? { [ownerHeader]: ownerKey } : {};
-}
-
-async function fetchJsonMaybe(url: string, env: Env): Promise<any | null> {
-  try {
-    const resp = await fetch(url, { headers: getOwnerHeaders(env) });
-    if (!resp.ok) return null;
-    const text = await resp.text();
-    try {
-      return JSON.parse(text);
-    } catch {
-      return { raw: text };
-    }
-  } catch {
-    return null;
-  }
-}
 
 function parseWhaleBias(payload: any): WhaleBias {
   const candidates = [

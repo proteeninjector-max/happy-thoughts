@@ -1,5 +1,6 @@
 import type { Env } from "../../index";
 import type { DispatchRequest, DispatchResponse, InternalProviderHandler } from "../types";
+import { fetchJsonMaybe } from "../utils";
 
 const SIGNAL_TICKERS = ["BTCUSD.P", "ETHUSD.P", "SOLUSDC.P"] as const;
 const SIGNAL_MAX_AGE_MS = 20 * 60 * 1000;
@@ -12,27 +13,6 @@ type SignalSummary = {
   stale: boolean;
   raw: any;
 };
-
-function getOwnerHeaders(env: Env): HeadersInit {
-  const ownerHeader = env.OWNER_KEY_HEADER || "X-OWNER-KEY";
-  const ownerKey = env.OWNER_KEY;
-  return ownerKey ? { [ownerHeader]: ownerKey } : {};
-}
-
-async function fetchJsonMaybe(url: string, env: Env): Promise<any | null> {
-  try {
-    const resp = await fetch(url, { headers: getOwnerHeaders(env) });
-    if (!resp.ok) return null;
-    const text = await resp.text();
-    try {
-      return JSON.parse(text);
-    } catch {
-      return { raw: text };
-    }
-  } catch {
-    return null;
-  }
-}
 
 function extractTimestampMs(payload: any): number | null {
   const candidates = [
