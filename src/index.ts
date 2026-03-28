@@ -584,6 +584,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         price_paid: cachedPrice,
         confidence: cached.confidence ?? 0,
         response_time_ms,
+        provider_meta: cached.provider_meta ?? null,
         revenue_split: {
           broker_wallet: env.PROFIT_WALLET,
           broker_amount: Number((cachedPrice * 0.3).toFixed(4)),
@@ -657,8 +658,10 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         price_paid: cachedPrice,
         cached: true,
         confidence: thoughtRecord.confidence,
+        response_time_ms,
         parent_thought_id: thoughtRecord.parent_thought_id,
-        disclaimer
+        disclaimer,
+        meta: cached.provider_meta ?? null
       });
     }
   }
@@ -831,6 +834,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     specialty,
     price_paid: price,
     confidence,
+    provider_meta: dispatchResult.meta ?? null,
     created_at: thoughtRecord.timestamp
   };
   await env.CACHE.put(cacheKey, JSON.stringify(cacheRecord));
