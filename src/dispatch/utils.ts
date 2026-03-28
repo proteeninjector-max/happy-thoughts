@@ -9,14 +9,27 @@ export function getOwnerHeaders(env: Env): HeadersInit {
 export async function fetchJsonMaybe(url: string, env: Env): Promise<any | null> {
   try {
     const resp = await fetch(url, { headers: getOwnerHeaders(env) });
-    if (!resp.ok) return null;
     const text = await resp.text();
+
+    if (!resp.ok) {
+      return {
+        fetch_error: true,
+        status: resp.status,
+        statusText: resp.statusText,
+        raw: text.slice(0, 500)
+      };
+    }
+
     try {
       return JSON.parse(text);
     } catch {
       return { raw: text };
     }
-  } catch {
-    return null;
+  } catch (error: any) {
+    return {
+      fetch_error: true,
+      thrown: true,
+      error: error?.message || String(error)
+    };
   }
 }
