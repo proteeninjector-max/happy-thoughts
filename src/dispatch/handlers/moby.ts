@@ -5,6 +5,8 @@ import { fetchJsonMaybe } from "../utils";
 type WhaleBias = "bullish" | "bearish" | "mixed" | "neutral";
 type FlowStrength = "low" | "medium" | "high";
 
+type MobyPayloadState = "ok" | "payment_required" | "malformed";
+
 function parseWhaleBias(payload: any): WhaleBias {
   const candidates = [
     payload?.whale_bias,
@@ -47,14 +49,24 @@ function parseFlowStrength(payload: any): FlowStrength {
   return "low";
 }
 
-function payloadLooksUsable(payload: any): boolean {
-  if (!payload || typeof payload !== "object") return false;
-  if (typeof payload.raw === "string") return false;
-  return true;
+function getPayloadState(payload: any): MobyPayloadState {
+  if (!payload || typeof payload !== "object") return "malformed";
+  if (payload?.x402Version || payload?.error === "Payment required") return "payment_required";
+  if (typeof payload.raw === "string") return "malformed";
+  return "ok";
 }
 
-function buildMobyAnswer(bias: WhaleBias, strength: FlowStrength, malformed: boolean): string {
-  if (malformed) {
+function buildMobyAnswer(bias: WhaleBias, strength: FlowStrength, state: MobyPayloadState): string {
+  if (state === "payment_required") {
+    return [
+      "Whale flow lane: crypto/whale-tracking.",
+      "Whale feed is payment-gated upstream and bypass auth did not succeed, so this response is degraded.",
+      "Confidence: low.",
+      "Caveat: Happy Thoughts could not fetch the premium whale feed for this request."
+    ].join("\n");
+  }
+
+  if (state === "malformed") {
     return [
       "Whale flow lane: crypto/whale-tracking.",
       "Whale data unavailable or malformed — thesis based on signal data only if needed.",
@@ -87,18 +99,22 @@ export const mobyHandler: InternalProviderHandler = {
       const mobyBase = env.MOBY_ENDPOINT_BASE || "https://proteeninjector-moby.proteeninjector.workers.dev/moby";
 
       const payload = await fetchJsonMaybe(mobyBase, env);
-      const malformed = !payloadLooksUsable(payload);
-      const whale_bias = malformed ? "neutral" : parseWhaleBias(payload);
-      const flow_strength = malformed ? "low" : parseFlowStrength(payload);
-      const confidence = malformed ? 0.2 : whale_bias === "mixed" || whale_bias === "neutral" ? 0.45 : 0.62;
-      const caveats = malformed
-        ? ["Whale data unavailable or malformed — thesis based on signal data only."]
-        : whale_bias === "mixed" || whale_bias === "neutral"
-          ? ["Whale positioning is not giving a clean directional edge."]
-          : [];
+      const state = getPayloadState(payload);
+      const whale_bias = state === "ok" ? parseWhaleBias(payload) : "neutral";
+      const flow_strength = state === "ok" ? parseFlowStrength(payload) : "low";
+      const confidence =
+        state !== "ok" ? 0.2 : whale_bias === "mixed" || whale_bias === "neutral" ? 0.45 : 0.62;
+      const caveats =
+        state === "payment_required"
+          ? ["Whale feed is payment-gated upstream and bypass auth did not succeed."]
+          : state === "malformed"
+            ? ["Whale data unavailable or malformed — thesis based on signal data only."]
+            : whale_bias === "mixed" || whale_bias === "neutral"
+              ? ["Whale positioning is not giving a clean directional edge."]
+              : [];
 
       return {
-        answer: buildMobyAnswer(whale_bias, flow_strength, malformed),
+        answer: buildMobyAnswer(whale_bias, flow_strength, state),
         confidence,
         handler: "internal://moby",
         response_time_ms: Date.now() - startedAt,
@@ -108,7 +124,11 @@ export const mobyHandler: InternalProviderHandler = {
           whale_bias,
           flow_strength,
           caveats,
-          malformed_payload: malformed
+          malformed_payload: state === "malformed",
+          upstream_payment_required: state === "payment_required",
+          owner_header_name: env.OWNER_KEY_HEADER || "X-OWNER-KEY",
+          owner_key_present: Boolean(env.OWNER_KEY),
+          payload_top_level_keys: payload && typeof payload === "object" ? Object.keys(payload).slice(0, 12) : []
         }
       };
     } catch (error: any) {
