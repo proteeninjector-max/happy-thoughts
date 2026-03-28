@@ -122,6 +122,7 @@ export const mobyHandler: InternalProviderHandler = {
         meta: {
           source: "moby",
           specialty: req.specialty,
+          moby_base_used: mobyBase,
           whale_bias,
           flow_strength,
           caveats,
