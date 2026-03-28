@@ -79,6 +79,7 @@ OWNER_KEY_HEADER = "X-OWNER-KEY"
 X402_FACILITATOR_URL = "https://x402.org/facilitator"
 X402_NETWORK = "eip155:8453"
 X402_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+MOBY_ENDPOINT_BASE = "https://moby.proteeninjector.com/moby"
 
 [[env.dev.kv_namespaces]]
 binding = "PROVIDERS"
