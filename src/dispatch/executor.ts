@@ -1,3 +1,4 @@
+import type { Env } from "../index";
 import type { DispatchRequest, DispatchResponse, InternalHandlerKey, InternalProviderHandler } from "./types";
 
 let internalHandlers: Partial<Record<InternalHandlerKey, InternalProviderHandler>> = {};

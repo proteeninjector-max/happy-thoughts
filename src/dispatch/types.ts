@@ -1,3 +1,5 @@
+import type { Env } from "../index";
+
 export type ProviderTier = "founding_brain" | "thinker" | "trusted_thinker" | "verified_brain";
 
 export type ProviderRecord = {

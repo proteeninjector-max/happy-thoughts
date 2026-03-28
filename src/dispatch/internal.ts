@@ -1,3 +1,4 @@
+import type { Env } from "../index";
 import { dispatchInternalByKey, registerInternalHandlers } from "./executor";
 import { claudeHaikuHandler } from "./handlers/claude-haiku";
 import { mobyHandler } from "./handlers/moby";

@@ -1,3 +1,4 @@
+import type { Env } from "../index";
 import type { DispatchRequest, DispatchResponse } from "./types";
 
 export async function dispatchExternalProvider(

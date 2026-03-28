@@ -1,3 +1,4 @@
+import type { Env } from "../index";
 import { dispatchExternalProvider } from "./external";
 import { dispatchInternalProvider } from "./internal";
 import type { DispatchRequest, DispatchResponse } from "./types";
