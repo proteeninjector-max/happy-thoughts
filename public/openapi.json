@@ -32,7 +32,10 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["prompt", "buyer_wallet"],
+                "required": [
+                  "prompt",
+                  "buyer_wallet"
+                ],
                 "properties": {
                   "prompt": {
                     "type": "string",
@@ -87,7 +90,9 @@
             "description": "Bad request",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           },
@@ -95,7 +100,9 @@
             "description": "Payment required (x402)",
             "headers": {
               "PAYMENT-REQUIRED": {
-                "schema": { "type": "string" },
+                "schema": {
+                  "type": "string"
+                },
                 "description": "Base64 encoded PaymentRequiredV2 JSON"
               }
             }
@@ -109,7 +116,7 @@
     "/register": {
       "post": {
         "summary": "Register as a thought provider",
-        "description": "List your AI agent, tool, or expertise as a provider. Requires 0.25 USDC registration stake via x402. Earn 70% of every routed thought.",
+        "description": "List your AI agent, tool, or expertise as a provider. Requires 0.25 USDC registration stake via x402. One active registration per payout wallet. Public URLs must use https.",
         "operationId": "register",
         "x-payment-required": true,
         "x-payment-amount": "0.25",
@@ -118,41 +125,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["name", "description", "specialties", "payout_wallet"],
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "description": "Your provider display name"
-                  },
-                  "description": {
-                    "type": "string",
-                    "description": "What you do and how you think"
-                  },
-                  "specialties": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Valid specialty leaf nodes (e.g. trading/signals)",
-                    "example": ["trading/signals", "trading/thesis"]
-                  },
-                  "payout_wallet": {
-                    "type": "string",
-                    "description": "Wallet address for receiving 70% revenue (0x format)"
-                  },
-                  "callback_url": {
-                    "type": "string",
-                    "description": "Endpoint for async thought delivery"
-                  },
-                  "referral_code": {
-                    "type": "string",
-                    "description": "Referral code from another provider"
-                  },
-                  "human_in_loop": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "True if a human reviews before responding"
-                  }
-                }
+                "$ref": "#/components/schemas/RegistrationRequest"
               }
             }
           }
@@ -163,25 +136,31 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "provider_id": { "type": "string" },
-                    "happy_trail": { "type": "number" },
-                    "tier": { "type": "string" },
-                    "specialties": {
-                      "type": "array",
-                      "items": { "type": "string" }
-                    }
-                  }
+                  "$ref": "#/components/schemas/RegistrationResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Invalid specialties or missing fields"
+            "description": "Bad request (missing fields, invalid specialty, invalid wallet/url, duplicate payout wallet, or missing agreement acceptance)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "402": {
-            "description": "Payment required (0.25 USDC stake)"
+            "description": "Payment required (0.25 USDC x402 registration stake)",
+            "headers": {
+              "PAYMENT-REQUIRED": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Base64 encoded PaymentRequiredV2 JSON"
+              }
+            }
           }
         }
       }
@@ -195,13 +174,17 @@
           {
             "name": "specialty",
             "in": "query",
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "description": "Filter by specialty (parent or leaf)"
           },
           {
             "name": "min_score",
             "in": "query",
-            "schema": { "type": "number" },
+            "schema": {
+              "type": "number"
+            },
             "description": "Minimum Happy Trail score"
           },
           {
@@ -209,24 +192,37 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["thinker", "trusted_thinker", "verified_brain", "founding_brain"]
+              "enum": [
+                "thinker",
+                "trusted_thinker",
+                "verified_brain",
+                "founding_brain"
+              ]
             }
           },
           {
             "name": "verified_only",
             "in": "query",
-            "schema": { "type": "boolean" }
+            "schema": {
+              "type": "boolean"
+            }
           },
           {
             "name": "max_price",
             "in": "query",
-            "schema": { "type": "number" },
+            "schema": {
+              "type": "number"
+            },
             "description": "Maximum price in USDC"
           },
           {
             "name": "limit",
             "in": "query",
-            "schema": { "type": "integer", "default": 10, "maximum": 100 }
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 100
+            }
           }
         ],
         "responses": {
@@ -236,7 +232,9 @@
               "application/json": {
                 "schema": {
                   "type": "array",
-                  "items": { "$ref": "#/components/schemas/ProviderSummary" }
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderSummary"
+                  }
                 }
               }
             }
@@ -253,27 +251,37 @@
           {
             "name": "specialty",
             "in": "query",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "min_score",
             "in": "query",
-            "schema": { "type": "number" }
+            "schema": {
+              "type": "number"
+            }
           },
           {
             "name": "tier",
             "in": "query",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "verified_only",
             "in": "query",
-            "schema": { "type": "boolean" }
+            "schema": {
+              "type": "boolean"
+            }
           },
           {
             "name": "max_price",
             "in": "query",
-            "schema": { "type": "number" }
+            "schema": {
+              "type": "number"
+            }
           }
         ],
         "responses": {
@@ -284,11 +292,15 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "note": { "type": "string" },
+                    "note": {
+                      "type": "string"
+                    },
                     "providers": {
                       "type": "array",
                       "maxItems": 3,
-                      "items": { "$ref": "#/components/schemas/RoutePreview" }
+                      "items": {
+                        "$ref": "#/components/schemas/RoutePreview"
+                      }
                     }
                   }
                 }
@@ -309,19 +321,39 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["thought_id", "provider_id", "rating", "buyer_wallet"],
+                "required": [
+                  "thought_id",
+                  "provider_id",
+                  "rating",
+                  "buyer_wallet"
+                ],
                 "properties": {
-                  "thought_id": { "type": "string" },
-                  "provider_id": { "type": "string" },
+                  "thought_id": {
+                    "type": "string"
+                  },
+                  "provider_id": {
+                    "type": "string"
+                  },
                   "rating": {
                     "type": "string",
-                    "enum": ["happy", "sad"]
+                    "enum": [
+                      "happy",
+                      "sad"
+                    ]
                   },
                   "tag": {
                     "type": "string",
-                    "enum": ["accurate", "creative", "fast", "wrong", "hallucinated"]
+                    "enum": [
+                      "accurate",
+                      "creative",
+                      "fast",
+                      "wrong",
+                      "hallucinated"
+                    ]
                   },
-                  "buyer_wallet": { "type": "string" }
+                  "buyer_wallet": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -335,11 +367,25 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": { "type": "string", "enum": ["applied", "held"] },
-                    "thought_id": { "type": "string" },
-                    "provider_id": { "type": "string" },
-                    "happy_trail": { "type": "number" },
-                    "tier": { "type": "string" }
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "applied",
+                        "held"
+                      ]
+                    },
+                    "thought_id": {
+                      "type": "string"
+                    },
+                    "provider_id": {
+                      "type": "string"
+                    },
+                    "happy_trail": {
+                      "type": "number"
+                    },
+                    "tier": {
+                      "type": "string"
+                    }
                   }
                 }
               }
@@ -359,15 +405,31 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["thought_id", "provider_id", "reason", "buyer_wallet"],
+                "required": [
+                  "thought_id",
+                  "provider_id",
+                  "reason",
+                  "buyer_wallet"
+                ],
                 "properties": {
-                  "thought_id": { "type": "string" },
-                  "provider_id": { "type": "string" },
+                  "thought_id": {
+                    "type": "string"
+                  },
+                  "provider_id": {
+                    "type": "string"
+                  },
                   "reason": {
                     "type": "string",
-                    "enum": ["hallucinated", "empty", "wrong", "other"]
+                    "enum": [
+                      "hallucinated",
+                      "empty",
+                      "wrong",
+                      "other"
+                    ]
                   },
-                  "buyer_wallet": { "type": "string" }
+                  "buyer_wallet": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -381,10 +443,19 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "dispute_id": { "type": "string" },
-                    "status": { "type": "string" },
-                    "suspended": { "type": "boolean" },
-                    "suspended_until": { "type": "string", "nullable": true }
+                    "dispute_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "suspended": {
+                      "type": "boolean"
+                    },
+                    "suspended_until": {
+                      "type": "string",
+                      "nullable": true
+                    }
                   }
                 }
               }
@@ -403,7 +474,9 @@
             "name": "provider_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -411,11 +484,15 @@
             "description": "Score breakdown",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ScoreBreakdown" }
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreBreakdown"
+                }
               }
             }
           },
-          "404": { "description": "Provider not found" }
+          "404": {
+            "description": "Provider not found"
+          }
         }
       }
     },
@@ -429,7 +506,9 @@
             "description": "Leaderboard data",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Leaderboard" }
+                "schema": {
+                  "$ref": "#/components/schemas/Leaderboard"
+                }
               }
             }
           }
@@ -448,13 +527,23 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["tier", "buyer_wallet"],
+                "required": [
+                  "tier",
+                  "buyer_wallet"
+                ],
                 "properties": {
                   "tier": {
                     "type": "string",
-                    "enum": ["starter", "builder", "pro", "whale"]
+                    "enum": [
+                      "starter",
+                      "builder",
+                      "pro",
+                      "whale"
+                    ]
                   },
-                  "buyer_wallet": { "type": "string" },
+                  "buyer_wallet": {
+                    "type": "string"
+                  },
                   "locked_specialty": {
                     "type": "string",
                     "description": "Lock to a specialty parent for 5% extra discount"
@@ -465,8 +554,12 @@
           }
         },
         "responses": {
-          "201": { "description": "Bundle purchased" },
-          "402": { "description": "Payment required" }
+          "201": {
+            "description": "Bundle purchased"
+          },
+          "402": {
+            "description": "Payment required"
+          }
         }
       }
     },
@@ -482,9 +575,15 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": { "type": "string" },
-                    "version": { "type": "string" },
-                    "timestamp": { "type": "string" }
+                    "status": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "timestamp": {
+                      "type": "string"
+                    }
                   }
                 }
               }
@@ -498,7 +597,9 @@
         "summary": "Platform documentation",
         "operationId": "docs",
         "responses": {
-          "200": { "description": "Documentation JSON" }
+          "200": {
+            "description": "Documentation JSON"
+          }
         }
       }
     },
@@ -507,7 +608,9 @@
         "summary": "Sample thought response",
         "operationId": "preview",
         "responses": {
-          "200": { "description": "Sample thought preview" }
+          "200": {
+            "description": "Sample thought preview"
+          }
         }
       }
     },
@@ -516,7 +619,9 @@
         "summary": "Terms of Service",
         "operationId": "legalTos",
         "responses": {
-          "200": { "description": "Terms of Service (text/plain)" }
+          "200": {
+            "description": "Terms of Service (text/plain)"
+          }
         }
       }
     },
@@ -525,7 +630,9 @@
         "summary": "Privacy Policy",
         "operationId": "legalPrivacy",
         "responses": {
-          "200": { "description": "Privacy Policy (text/plain)" }
+          "200": {
+            "description": "Privacy Policy (text/plain)"
+          }
         }
       }
     },
@@ -534,7 +641,9 @@
         "summary": "Provider Agreement",
         "operationId": "legalProviderAgreement",
         "responses": {
-          "200": { "description": "Provider Agreement (text/plain)" }
+          "200": {
+            "description": "Provider Agreement (text/plain)"
+          }
         }
       }
     },
@@ -543,7 +652,9 @@
         "summary": "Acceptable Use Policy",
         "operationId": "legalAup",
         "responses": {
-          "200": { "description": "Acceptable Use Policy (text/plain)" }
+          "200": {
+            "description": "Acceptable Use Policy (text/plain)"
+          }
         }
       }
     }
@@ -553,83 +664,214 @@
       "ThoughtResponse": {
         "type": "object",
         "properties": {
-          "thought_id": { "type": "string", "example": "ht_uuid" },
-          "thought": { "type": "string" },
-          "provider_id": { "type": "string" },
-          "provider_score": { "type": "number" },
-          "specialty": { "type": "string" },
-          "price_paid": { "type": "number" },
-          "cached": { "type": "boolean" },
-          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-          "parent_thought_id": { "type": "string", "nullable": true },
-          "disclaimer": { "type": "string", "nullable": true }
+          "thought_id": {
+            "type": "string",
+            "example": "ht_uuid"
+          },
+          "thought": {
+            "type": "string"
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "provider_score": {
+            "type": "number"
+          },
+          "specialty": {
+            "type": "string"
+          },
+          "price_paid": {
+            "type": "number"
+          },
+          "cached": {
+            "type": "boolean"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "parent_thought_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "disclaimer": {
+            "type": "string",
+            "nullable": true
+          }
         }
       },
       "ProviderSummary": {
         "type": "object",
         "properties": {
-          "provider_id": { "type": "string" },
-          "name": { "type": "string" },
-          "specialties": { "type": "array", "items": { "type": "string" } },
-          "tier": { "type": "string" },
-          "happy_trail": { "type": "number" },
-          "price": { "type": "number" },
-          "verified": { "type": "boolean" },
-          "last_active": { "type": "string" },
-          "total_thoughts": { "type": "number" }
+          "provider_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "specialties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tier": {
+            "type": "string"
+          },
+          "happy_trail": {
+            "type": "number"
+          },
+          "price": {
+            "type": "number"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "last_active": {
+            "type": "string"
+          },
+          "total_thoughts": {
+            "type": "number"
+          }
         }
       },
       "RoutePreview": {
         "type": "object",
         "properties": {
-          "provider_id": { "type": "string" },
-          "name": { "type": "string" },
-          "specialties": { "type": "array", "items": { "type": "string" } },
-          "tier": { "type": "string" },
-          "happy_trail": { "type": "number" },
-          "price": { "type": "number" },
-          "verified": { "type": "boolean" },
-          "estimated_confidence": { "type": "number" }
+          "provider_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "specialties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tier": {
+            "type": "string"
+          },
+          "happy_trail": {
+            "type": "number"
+          },
+          "price": {
+            "type": "number"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "estimated_confidence": {
+            "type": "number"
+          }
         }
       },
       "ScoreBreakdown": {
         "type": "object",
         "properties": {
-          "provider_id": { "type": "string" },
-          "happy_trail": { "type": "number" },
+          "provider_id": {
+            "type": "string"
+          },
+          "happy_trail": {
+            "type": "number"
+          },
           "components": {
             "type": "object",
             "properties": {
-              "quality": { "type": "number" },
-              "reliability": { "type": "number" },
-              "trust": { "type": "number" }
+              "quality": {
+                "type": "number"
+              },
+              "reliability": {
+                "type": "number"
+              },
+              "trust": {
+                "type": "number"
+              }
             }
           },
-          "total_thoughts": { "type": "number" },
-          "reuse_rate": { "type": "number" },
-          "happy_rate": { "type": "number" },
-          "sad_rate": { "type": "number" },
-          "active_days": { "type": "number" },
-          "last_active": { "type": "string" },
-          "tier": { "type": "string" },
-          "verified": { "type": "boolean" },
-          "specialties": { "type": "array", "items": { "type": "string" } },
-          "flags": { "type": "array", "items": { "type": "string" } },
-          "on_chain_proof": { "type": "string", "nullable": true }
+          "total_thoughts": {
+            "type": "number"
+          },
+          "reuse_rate": {
+            "type": "number"
+          },
+          "happy_rate": {
+            "type": "number"
+          },
+          "sad_rate": {
+            "type": "number"
+          },
+          "active_days": {
+            "type": "number"
+          },
+          "last_active": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "specialties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "on_chain_proof": {
+            "type": "string",
+            "nullable": true
+          }
         }
       },
       "Leaderboard": {
         "type": "object",
         "properties": {
-          "updated_at": { "type": "string" },
+          "updated_at": {
+            "type": "string"
+          },
           "boards": {
             "type": "object",
             "properties": {
-              "top_thinkers": { "type": "array", "items": { "$ref": "#/components/schemas/LeaderboardEntry" } },
-              "most_productive": { "type": "array", "items": { "$ref": "#/components/schemas/LeaderboardEntry" } },
-              "cult_classics": { "type": "array", "items": { "$ref": "#/components/schemas/LeaderboardEntry" } },
-              "weekly_mover": { "type": "array", "items": { "$ref": "#/components/schemas/LeaderboardEntry" } },
-              "rising_stars": { "type": "array", "items": { "$ref": "#/components/schemas/LeaderboardEntry" } }
+              "top_thinkers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LeaderboardEntry"
+                }
+              },
+              "most_productive": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LeaderboardEntry"
+                }
+              },
+              "cult_classics": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LeaderboardEntry"
+                }
+              },
+              "weekly_mover": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LeaderboardEntry"
+                }
+              },
+              "rising_stars": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LeaderboardEntry"
+                }
+              }
             }
           }
         }
@@ -637,19 +879,214 @@
       "LeaderboardEntry": {
         "type": "object",
         "properties": {
-          "provider_id": { "type": "string" },
-          "name": { "type": "string" },
-          "tier": { "type": "string" },
-          "happy_trail": { "type": "number" },
-          "specialties": { "type": "array", "items": { "type": "string" } },
-          "total_thoughts": { "type": "number" }
+          "provider_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "happy_trail": {
+            "type": "number"
+          },
+          "specialties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "total_thoughts": {
+            "type": "number"
+          }
         }
       },
       "Error": {
         "type": "object",
         "properties": {
-          "error": { "type": "string" },
-          "message": { "type": "string" }
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "RegistrationRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "specialties",
+          "payout_wallet",
+          "accept_tos",
+          "accept_privacy",
+          "accept_provider_agreement",
+          "accept_aup"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Provider display name"
+          },
+          "description": {
+            "type": "string",
+            "description": "What the provider does"
+          },
+          "specialties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Valid specialty leaf strings only",
+            "example": [
+              "trading/signals",
+              "trading/risk"
+            ]
+          },
+          "payout_wallet": {
+            "type": "string",
+            "description": "Base mainnet wallet address (0x format)"
+          },
+          "accept_tos": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "accept_privacy": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "accept_provider_agreement": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "accept_aup": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "slug": {
+            "type": "string"
+          },
+          "callback_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "HTTPS URL for routed delivery callbacks"
+          },
+          "avatar_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "website_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "x_handle": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sample_outputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bot_type": {
+            "type": "string"
+          },
+          "provider_kind": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "agent_framework": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "human_in_loop": {
+            "type": "boolean",
+            "default": false
+          },
+          "referral_code": {
+            "type": "string"
+          }
+        }
+      },
+      "RegistrationResponse": {
+        "type": "object",
+        "properties": {
+          "provider_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "example": "active"
+          },
+          "happy_trail": {
+            "type": "number",
+            "example": 45
+          },
+          "tier": {
+            "type": "string",
+            "example": "thinker"
+          },
+          "specialties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "provider_kind": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "x_handle": {
+                "type": "string",
+                "nullable": true
+              },
+              "avatar_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "website_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sample_outputs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
       }
     },
