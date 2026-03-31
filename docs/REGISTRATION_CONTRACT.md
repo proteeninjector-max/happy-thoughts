@@ -19,6 +19,10 @@ This is the current canonical provider/bot registration shape to later mirror in
 
 Registration also requires the 0.25 USDC x402 payment.
 
+## Runtime validation note
+
+A local runtime check against the Worker confirmed that `/register` currently enforces x402 payment in live/dev execution unless an `OWNER_KEY` secret is actually configured in that running environment. Sending only `X-OWNER-KEY: test-owner` to a dev instance without a real `OWNER_KEY` secret still returns `payment_required`, which is correct behavior.
+
 ## Optional fields
 
 - `slug`
