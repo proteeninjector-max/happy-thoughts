@@ -1244,6 +1244,206 @@ describe("HappyThoughts Phase 5", () => {
   });
 });
 
+describe("HappyThoughts registration", () => {
+  it("POST /register creates a provider with clean bot metadata", async () => {
+    const env = makeEnv();
+
+    const res = await worker.fetch(
+      new Request("https://test/register", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-OWNER-KEY": "test-owner"
+        },
+        body: JSON.stringify({
+          name: "Moby Brain",
+          description: "Tracks whales and spits thoughts.",
+          slug: "moby-brain",
+          specialties: ["crypto/whale-tracking", "trading/thesis", "crypto/whale-tracking"],
+          payout_wallet: "0x1111111111111111111111111111111111111111",
+          callback_url: "https://bots.example.com/webhook",
+          avatar_url: "https://bots.example.com/avatar.png",
+          website_url: "https://bots.example.com",
+          x_handle: "@mobybrain",
+          tags: ["Whale", "trading", "whale"],
+          sample_outputs: ["First sample", "Second sample"],
+          bot_type: "signal-bot",
+          model: "claude-haiku",
+          agent_framework: "openclaw",
+          runtime: "worker",
+          accept_tos: true,
+          accept_privacy: true,
+          accept_provider_agreement: true,
+          accept_aup: true
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(201);
+    const json: any = await res.json();
+    expect(json.provider_id).toBe("moby-brain");
+    expect(json.slug).toBe("moby-brain");
+    expect(json.status).toBe("active");
+    expect(json.specialties).toEqual(["crypto/whale-tracking", "trading/thesis"]);
+
+    const providerRaw = await env.PROVIDERS.get("provider:moby-brain");
+    expect(providerRaw).toBeTruthy();
+    const provider = JSON.parse(providerRaw as string);
+    expect(provider.tags).toEqual(["trading", "whale"]);
+    expect(provider.x_handle).toBe("mobybrain");
+    expect(provider.provider_kind).toBe("signal-bot");
+    expect(provider.status).toBe("active");
+
+    const agreementRaw = await env.AGREEMENTS.get("agreement:moby-brain");
+    expect(agreementRaw).toBeTruthy();
+    const agreement = JSON.parse(agreementRaw as string);
+    expect(agreement.accept_tos).toBe(true);
+    expect(agreement.accept_provider_agreement).toBe(true);
+
+    const stakeRaw = await env.AGREEMENTS.get("stake:moby-brain");
+    expect(stakeRaw).toBeTruthy();
+  });
+
+  it("POST /register rejects duplicate payout wallet registrations", async () => {
+    const env = makeEnv();
+
+    const body = {
+      name: "Bot One",
+      description: "First bot",
+      specialties: ["trading/signals"],
+      payout_wallet: "0x2222222222222222222222222222222222222222",
+      accept_tos: true,
+      accept_privacy: true,
+      accept_provider_agreement: true,
+      accept_aup: true
+    };
+
+    const first = await worker.fetch(
+      new Request("https://test/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify(body)
+      }),
+      env,
+      {} as any
+    );
+    expect(first.status).toBe(201);
+
+    const second = await worker.fetch(
+      new Request("https://test/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify({
+          ...body,
+          name: "Bot Two",
+          slug: "bot-two"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(second.status).toBe(400);
+    const json: any = await second.json();
+    expect(json.message).toContain("payout_wallet already has an active provider registration");
+  });
+
+  it("POST /register stores the canonical record shape for later docs/llm.txt use", async () => {
+    const env = makeEnv();
+    const payload = {
+      name: "PI Signals",
+      description: "Structured trading signals and risk framing.",
+      slug: "pi-signals",
+      specialties: ["trading/signals", "trading/risk", "trading/defi"],
+      payout_wallet: "0x3333333333333333333333333333333333333333",
+      callback_url: "https://signals.example.com/webhook",
+      avatar_url: "https://signals.example.com/avatar.png",
+      website_url: "https://signals.example.com",
+      x_handle: "proteeninjector",
+      tags: ["signals", "risk", "perps"],
+      sample_outputs: [
+        "BTC long setup with clear invalidation.",
+        "SOL scalp idea with defined TP/SL."
+      ],
+      bot_type: "trading-bot",
+      model: "claude-3.7-sonnet",
+      agent_framework: "openclaw",
+      runtime: "worker",
+      human_in_loop: false,
+      accept_tos: true,
+      accept_privacy: true,
+      accept_provider_agreement: true,
+      accept_aup: true
+    };
+
+    const res = await worker.fetch(
+      new Request("https://test/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify(payload)
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(201);
+
+    const provider = JSON.parse((await env.PROVIDERS.get("provider:pi-signals")) as string);
+    const score = JSON.parse((await env.SCORES.get("score:pi-signals")) as string);
+    const agreement = JSON.parse((await env.AGREEMENTS.get("agreement:pi-signals")) as string);
+    const stake = JSON.parse((await env.AGREEMENTS.get("stake:pi-signals")) as string);
+
+    expect(provider).toMatchObject({
+      id: "pi-signals",
+      slug: "pi-signals",
+      name: "PI Signals",
+      payout_wallet: payload.payout_wallet,
+      callback_url: payload.callback_url,
+      provider_kind: "trading-bot",
+      status: "active",
+      registration_mode: "single_provider_per_payout_wallet",
+      tags: ["perps", "risk", "signals"],
+      sample_outputs: payload.sample_outputs,
+      specialties: ["trading/defi", "trading/risk", "trading/signals"]
+    });
+
+    expect(score).toMatchObject({
+      happy_trail: 45,
+      quality: 45,
+      reliability: 45,
+      trust: 45,
+      registration_status: "active",
+      tier: "thinker"
+    });
+
+    expect(agreement).toMatchObject({
+      provider_id: "pi-signals",
+      payout_wallet: payload.payout_wallet,
+      accept_tos: true,
+      accept_privacy: true,
+      accept_provider_agreement: true,
+      accept_aup: true
+    });
+    expect(agreement.agreement_versions).toMatchObject({
+      tos: "1.0",
+      privacy: "1.0",
+      provider_agreement: "1.0",
+      aup: "1.0"
+    });
+
+    expect(stake).toMatchObject({
+      provider_id: "pi-signals",
+      payout_wallet: payload.payout_wallet,
+      amount: 0.25,
+      status: "paid",
+      stake_type: "registration",
+      forfeited: false
+    });
+  });
+});
+
 describe("HappyThoughts Phase 7", () => {
   it("POST /internal/think — owner bypass", async () => {
     const env = makeEnv();
