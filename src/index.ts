@@ -110,6 +110,119 @@ function validateSpecialties(specialties: string[]): string[] {
   return specialties.filter((s) => !SPECIALTY_LEAVES.has(s));
 }
 
+function normalizeList(values: unknown, options?: { lower?: boolean; sort?: boolean }): string[] {
+  if (!Array.isArray(values)) return [];
+  const out = values
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean)
+    .map((v) => (options?.lower ? v.toLowerCase() : v));
+  const deduped = Array.from(new Set(out));
+  return options?.sort === false ? deduped : deduped.sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeSpecialties(values: unknown): string[] {
+  return normalizeList(values, { lower: true, sort: true });
+}
+
+function normalizeTags(values: unknown): string[] {
+  return normalizeList(values, { lower: true, sort: true }).slice(0, 20);
+}
+
+function normalizeSampleOutputs(values: unknown): string[] {
+  return normalizeList(values, { lower: false, sort: false }).slice(0, 5).map((v) => v.slice(0, 500));
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 48);
+}
+
+function isValidWallet(value: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(value);
+}
+
+function normalizeHandle(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().replace(/^@+/, "");
+  if (!trimmed) return null;
+  return trimmed.slice(0, 64);
+}
+
+function normalizeOptionalString(value: unknown, maxLen = 280): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, maxLen);
+}
+
+function normalizeProviderKind(value: unknown): string {
+  const raw = normalizeOptionalString(value, 64)?.toLowerCase();
+  return raw || "bot";
+}
+
+function normalizeRuntime(value: unknown): string | null {
+  return normalizeOptionalString(value, 64)?.toLowerCase() ?? null;
+}
+
+function validatePublicUrl(value: string | null, field: string): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") {
+      throw new Error(`${field} must use https`);
+    }
+    return url.toString();
+  } catch (err: any) {
+    throw new Error(err?.message || `${field} is invalid`);
+  }
+}
+
+function validateCallbackUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") {
+      throw new Error("callback_url must use https");
+    }
+    return url.toString();
+  } catch (err: any) {
+    throw new Error(err?.message || "callback_url is invalid");
+  }
+}
+
+async function providerIdExists(providerId: string, env: Env): Promise<boolean> {
+  const existing = await env.PROVIDERS.get(`provider:${providerId}`);
+  return Boolean(existing);
+}
+
+async function buildProviderId(slug: string | null, name: string, env: Env): Promise<string> {
+  const base = slug || slugify(name) || `provider-${crypto.randomUUID().slice(0, 8)}`;
+  let candidate = base;
+  let i = 1;
+  while (await providerIdExists(candidate, env)) {
+    i += 1;
+    candidate = `${base}-${i}`.slice(0, 64);
+  }
+  return candidate;
+}
+
+async function findProviderByPayoutWallet(wallet: string, env: Env): Promise<any | null> {
+  const list = await env.PROVIDERS.list({ prefix: "provider:" });
+  for (const key of list.keys) {
+    const raw = await env.PROVIDERS.get(key.name);
+    if (!raw) continue;
+    const provider = JSON.parse(raw);
+    if ((provider?.payout_wallet || "").toLowerCase() === wallet.toLowerCase()) {
+      return provider;
+    }
+  }
+  return null;
+}
+
 function parseBool(value: string | null): boolean {
   if (!value) return false;
   return ["true", "1", "yes"].includes(value.toLowerCase());
@@ -1582,12 +1695,36 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     return badRequest("invalid JSON body");
   }
 
-  const { name, description, specialties, payout_wallet, callback_url, referral_code, human_in_loop } = body || {};
+  const name = normalizeOptionalString(body?.name, 80);
+  const description = normalizeOptionalString(body?.description, 500);
+  const payout_wallet = normalizeOptionalString(body?.payout_wallet, 64);
+  const specialties = normalizeSpecialties(body?.specialties);
+  const tags = normalizeTags(body?.tags);
+  const sample_outputs = normalizeSampleOutputs(body?.sample_outputs);
+  const requestedSlug = normalizeOptionalString(body?.slug, 64);
+  const referral_code = normalizeOptionalString(body?.referral_code, 64);
+  const callback_url_raw = normalizeOptionalString(body?.callback_url, 500);
+  const avatar_url_raw = normalizeOptionalString(body?.avatar_url, 500);
+  const website_url_raw = normalizeOptionalString(body?.website_url, 500);
+  const x_handle = normalizeHandle(body?.x_handle || body?.social_handle);
+  const provider_kind = normalizeProviderKind(body?.bot_type || body?.provider_kind);
+  const model = normalizeOptionalString(body?.model, 100);
+  const agent_framework = normalizeOptionalString(body?.agent_framework, 100);
+  const runtime = normalizeRuntime(body?.runtime);
+  const human_in_loop = Boolean(body?.human_in_loop);
+  const accepts_tos = Boolean(body?.accept_tos);
+  const accepts_privacy = Boolean(body?.accept_privacy);
+  const accepts_provider_agreement = Boolean(body?.accept_provider_agreement);
+  const accepts_aup = Boolean(body?.accept_aup);
 
-  if (!name || !description || !Array.isArray(specialties) || specialties.length === 0 || !payout_wallet) {
+  if (!name || !description || specialties.length === 0 || !payout_wallet) {
     return badRequest("missing required fields", {
       required: ["name", "description", "specialties[]", "payout_wallet"]
     });
+  }
+
+  if (!isValidWallet(payout_wallet)) {
+    return badRequest("invalid payout_wallet", { payout_wallet });
   }
 
   const invalid = validateSpecialties(specialties);
@@ -1595,20 +1732,72 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     return badRequest("unknown specialties", { invalid, allowed: Array.from(SPECIALTY_LEAVES) });
   }
 
-  const provider_id = crypto.randomUUID();
+  if (!accepts_tos || !accepts_privacy || !accepts_provider_agreement || !accepts_aup) {
+    return badRequest("missing required agreement acceptance", {
+      required: ["accept_tos", "accept_privacy", "accept_provider_agreement", "accept_aup"]
+    });
+  }
+
+  let callback_url: string | null = null;
+  let avatar_url: string | null = null;
+  let website_url: string | null = null;
+  try {
+    callback_url = validateCallbackUrl(callback_url_raw);
+    avatar_url = validatePublicUrl(avatar_url_raw, "avatar_url");
+    website_url = validatePublicUrl(website_url_raw, "website_url");
+  } catch (err: any) {
+    return badRequest(err?.message || "invalid URL field");
+  }
+
+  const existingWalletProvider = await findProviderByPayoutWallet(payout_wallet, env);
+  if (existingWalletProvider && existingWalletProvider.status !== "forfeited") {
+    return badRequest("payout_wallet already has an active provider registration", {
+      payout_wallet,
+      provider_id: existingWalletProvider.id,
+      status: existingWalletProvider.status || "active"
+    });
+  }
+
+  const slug = requestedSlug ? slugify(requestedSlug) : slugify(name);
+  if (requestedSlug && !slug) {
+    return badRequest("invalid slug");
+  }
+
+  const provider_id = await buildProviderId(slug || null, name, env);
   const timestamp = new Date().toISOString();
+  const agreementVersions = {
+    tos: "1.0",
+    privacy: "1.0",
+    provider_agreement: "1.0",
+    aup: "1.0"
+  };
 
   const providerRecord = {
     id: provider_id,
+    slug: slug || provider_id,
     name,
     description,
     specialties,
+    tags,
+    sample_outputs,
     payout_wallet,
-    callback_url: callback_url ?? null,
-    referral_code: referral_code ?? null,
-    human_in_loop: Boolean(human_in_loop),
+    callback_url,
+    referral_code,
+    human_in_loop,
+    provider_kind,
+    bot_type: provider_kind,
+    avatar_url,
+    website_url,
+    x_handle,
+    model,
+    agent_framework,
+    runtime,
+    status: "active",
+    registration_mode: "single_provider_per_payout_wallet",
+    registered_wallet: payment.payer,
     tier: "thinker",
-    created_at: timestamp
+    created_at: timestamp,
+    updated_at: timestamp
   };
 
   const scoreRecord = {
@@ -1623,63 +1812,90 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     active_days: 0,
     last_active: timestamp,
     tier: "thinker",
-    flags: [] as string[]
+    flags: [] as string[],
+    created_at: Date.now(),
+    registration_status: "active"
   };
 
   const agreementRecord = {
     wallet: payment.payer,
     provider_id,
+    payout_wallet,
     agreed_at: timestamp,
-    tos_version: "1.0"
+    accept_tos: true,
+    accept_privacy: true,
+    accept_provider_agreement: true,
+    accept_aup: true,
+    agreement_versions: agreementVersions,
+    request_meta: {
+      user_agent: request.headers.get("user-agent") || null,
+      cf_connecting_ip: request.headers.get("cf-connecting-ip") || null,
+      x_forwarded_for: request.headers.get("x-forwarded-for") || null
+    }
   };
 
   const stakeRecord = {
+    provider_id,
+    payer_wallet: payment.payer,
+    payout_wallet,
     amount: 0.25,
     status: "paid",
-    paid_at: timestamp
+    paid_at: timestamp,
+    stake_type: "registration",
+    forfeited: false
   };
 
   await env.PROVIDERS.put(`provider:${provider_id}`, JSON.stringify(providerRecord));
   await env.SCORES.put(`score:${provider_id}`, JSON.stringify(scoreRecord));
-  await env.AGREEMENTS.put(`agreement:${payment.payer}`, JSON.stringify(agreementRecord));
-  await env.PROVIDERS.put(`stake:${provider_id}`, JSON.stringify(stakeRecord));
+  await env.AGREEMENTS.put(`agreement:${provider_id}`, JSON.stringify(agreementRecord));
+  await env.AGREEMENTS.put(`agreement-wallet:${payment.payer}`, JSON.stringify(agreementRecord));
+  await env.AGREEMENTS.put(`stake:${provider_id}`, JSON.stringify(stakeRecord));
 
-  // Referral tracking
-  if (body.referral_code) {
-    const referralKey = `referral:${body.referral_code}`;
+  if (referral_code) {
+    const referralKey = `referral:${referral_code}`;
     const existingRaw = await env.REFERRALS.get(referralKey);
     const referralRecord = existingRaw
       ? JSON.parse(existingRaw)
       : {
-          referral_code: body.referral_code,
+          referral_code,
           referrals: [],
           total_referred: 0,
-          created_at: new Date().toISOString()
+          created_at: timestamp
         };
     referralRecord.referrals.push({
-      provider_id: provider_id,
-      wallet: body.wallet,
-      referred_at: new Date().toISOString()
+      provider_id,
+      payout_wallet,
+      registered_wallet: payment.payer,
+      referred_at: timestamp
     });
     referralRecord.total_referred = referralRecord.referrals.length;
     await env.REFERRALS.put(referralKey, JSON.stringify(referralRecord));
 
-    // Give referred provider a score bump: start at 50 instead of 40
     const score = await loadScore(provider_id, env);
     if (score && score.quality < 50) {
       score.quality = 50;
       score.happy_trail = round2(score.quality * 0.5 + score.reliability * 0.3 + score.trust * 0.2);
       await saveScore(score, env);
-      console.log(`[REFERRAL] ${provider_id} referred by ${body.referral_code} — score bumped to 50`);
+      console.log(`[REFERRAL] ${provider_id} referred by ${referral_code} — score bumped to 50`);
     }
   }
 
   return jsonResponse(
     {
       provider_id,
+      slug: providerRecord.slug,
+      status: providerRecord.status,
       happy_trail: 45,
       tier: "thinker",
-      specialties
+      specialties,
+      provider_kind,
+      payload: {
+        x_handle,
+        avatar_url,
+        website_url,
+        tags,
+        sample_outputs
+      }
     },
     201
   );
