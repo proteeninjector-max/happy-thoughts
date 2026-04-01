@@ -277,16 +277,11 @@ async function getProviderByToken(request: Request, env: Env): Promise<any | nul
   if (!token) return null;
 
   const tokenHash = await hashProviderToken(token);
-  const list = await env.PROVIDERS.list({ prefix: "provider:" });
-  for (const key of list.keys) {
-    const raw = await env.PROVIDERS.get(key.name);
-    if (!raw) continue;
-    const provider = JSON.parse(raw);
-    if (provider?.provider_token_hash === tokenHash) {
-      return provider;
-    }
-  }
-  return null;
+  const providerId = await env.PROVIDERS.get(`provider-token:${tokenHash}`);
+  if (!providerId) return null;
+  const raw = await env.PROVIDERS.get(`provider:${providerId}`);
+  if (!raw) return null;
+  return JSON.parse(raw);
 }
 
 function unauthorized(message = "invalid provider token"): Response {
@@ -1881,6 +1876,9 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   };
 
   await env.PROVIDERS.put(`provider:${provider_id}`, JSON.stringify(providerRecord));
+  if (providerTokenHash) {
+    await env.PROVIDERS.put(`provider-token:${providerTokenHash}`, provider_id);
+  }
   await env.SCORES.put(`score:${provider_id}`, JSON.stringify(scoreRecord));
   await env.AGREEMENTS.put(`agreement:${provider_id}`, JSON.stringify(agreementRecord));
   await env.AGREEMENTS.put(`agreement-wallet:${payment.payer}`, JSON.stringify(agreementRecord));
@@ -2068,11 +2066,16 @@ async function handleProviderTokenRotate(request: Request, env: Env): Promise<Re
   const provider = await getProviderByToken(request, env);
   if (!provider) return unauthorized();
 
+  const previousHash = provider.provider_token_hash || null;
   const providerToken = generateProviderToken();
   provider.provider_token_hash = await hashProviderToken(providerToken);
   provider.provider_token_created_at = new Date().toISOString();
   provider.updated_at = new Date().toISOString();
   await env.PROVIDERS.put(`provider:${provider.id}`, JSON.stringify(provider));
+  await env.PROVIDERS.put(`provider-token:${provider.provider_token_hash}`, provider.id);
+  if (previousHash && previousHash !== provider.provider_token_hash) {
+    await env.PROVIDERS.delete(`provider-token:${previousHash}`);
+  }
 
   return ok({ status: "rotated", provider_token: providerToken });
 }
