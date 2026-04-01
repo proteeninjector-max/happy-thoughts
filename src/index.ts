@@ -168,6 +168,11 @@ function normalizeRuntime(value: unknown): string | null {
   return normalizeOptionalString(value, 64)?.toLowerCase() ?? null;
 }
 
+function normalizeDeliveryMode(value: unknown): "hosted" | "webhook" {
+  const raw = normalizeOptionalString(value, 32)?.toLowerCase();
+  return raw === "webhook" ? "webhook" : "hosted";
+}
+
 function validatePublicUrl(value: string | null, field: string): string | null {
   if (!value) return null;
   try {
@@ -254,6 +259,38 @@ function computePrice(happyTrail: number, specialties: string[]): number {
 
 function round2(v: number) {
   return Number(v.toFixed(2));
+}
+
+function generateProviderToken(): string {
+  return `htp_${crypto.randomUUID().replace(/-/g, "")}`;
+}
+
+async function hashProviderToken(token: string): Promise<string> {
+  return sha256Hex(token);
+}
+
+async function getProviderByToken(request: Request, env: Env): Promise<any | null> {
+  const auth = request.headers.get("authorization") || "";
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  const token = match[1].trim();
+  if (!token) return null;
+
+  const tokenHash = await hashProviderToken(token);
+  const list = await env.PROVIDERS.list({ prefix: "provider:" });
+  for (const key of list.keys) {
+    const raw = await env.PROVIDERS.get(key.name);
+    if (!raw) continue;
+    const provider = JSON.parse(raw);
+    if (provider?.provider_token_hash === tokenHash) {
+      return provider;
+    }
+  }
+  return null;
+}
+
+function unauthorized(message = "invalid provider token"): Response {
+  return jsonResponse({ error: "unauthorized", message }, 401);
 }
 
 async function isSybilWallet(
@@ -1711,6 +1748,7 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
   const model = normalizeOptionalString(body?.model, 100);
   const agent_framework = normalizeOptionalString(body?.agent_framework, 100);
   const runtime = normalizeRuntime(body?.runtime);
+  const delivery_mode = normalizeDeliveryMode(body?.delivery_mode);
   const human_in_loop = Boolean(body?.human_in_loop);
   const accepts_tos = Boolean(body?.accept_tos);
   const accepts_privacy = Boolean(body?.accept_privacy);
@@ -1749,6 +1787,10 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     return badRequest(err?.message || "invalid URL field");
   }
 
+  if (delivery_mode === "webhook" && !callback_url) {
+    return badRequest("callback_url is required when delivery_mode=webhook");
+  }
+
   const existingWalletProvider = await findProviderByPayoutWallet(payout_wallet, env);
   if (existingWalletProvider && existingWalletProvider.status !== "forfeited") {
     return badRequest("payout_wallet already has an active provider registration", {
@@ -1771,6 +1813,8 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     provider_agreement: "1.0",
     aup: "1.0"
   };
+  const providerToken = delivery_mode === "hosted" ? generateProviderToken() : null;
+  const providerTokenHash = providerToken ? await hashProviderToken(providerToken) : null;
 
   const providerRecord = {
     id: provider_id,
@@ -1792,6 +1836,12 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     model,
     agent_framework,
     runtime,
+    delivery_mode,
+    provider_token_hash: providerTokenHash,
+    provider_token_created_at: providerToken ? timestamp : null,
+    delivery_status: delivery_mode === "hosted" ? "ready" : "pending_setup",
+    last_provider_poll_at: null,
+    last_provider_response_at: null,
     status: "active",
     registration_mode: "single_provider_per_payout_wallet",
     registered_wallet: payment.payer,
@@ -1885,10 +1935,18 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
       provider_id,
       slug: providerRecord.slug,
       status: providerRecord.status,
+      delivery_mode,
+      delivery_status: providerRecord.delivery_status,
       happy_trail: 45,
       tier: "thinker",
       specialties,
       provider_kind,
+      provider_token: providerToken,
+      provider_api_base: delivery_mode === "hosted" ? `${new URL(request.url).origin}/provider` : null,
+      next_step:
+        delivery_mode === "hosted"
+          ? "Poll /provider/jobs/next to receive routed thoughts."
+          : "Your provider is configured for pushed delivery.",
       payload: {
         x_handle,
         avatar_url,
@@ -1899,6 +1957,139 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     },
     201
   );
+}
+
+async function handleProviderMe(request: Request, env: Env): Promise<Response> {
+  const provider = await getProviderByToken(request, env);
+  if (!provider) return unauthorized();
+
+  const score = await loadScore(provider.id, env);
+  return ok({
+    provider_id: provider.id,
+    name: provider.name,
+    delivery_mode: provider.delivery_mode || "hosted",
+    delivery_status: provider.delivery_status || "ready",
+    specialties: provider.specialties || [],
+    happy_trail: score?.happy_trail ?? null,
+    tier: score?.tier || provider.tier,
+    last_provider_poll_at: provider.last_provider_poll_at ?? null,
+    last_provider_response_at: provider.last_provider_response_at ?? null
+  });
+}
+
+async function handleProviderJobsNext(request: Request, env: Env): Promise<Response> {
+  const provider = await getProviderByToken(request, env);
+  if (!provider) return unauthorized();
+
+  provider.last_provider_poll_at = new Date().toISOString();
+  provider.updated_at = new Date().toISOString();
+  await env.PROVIDERS.put(`provider:${provider.id}`, JSON.stringify(provider));
+
+  const list = await env.THOUGHTS.list({ prefix: `provider-job:${provider.id}:` });
+  let selectedJob: any = null;
+  for (const key of list.keys) {
+    const raw = await env.THOUGHTS.get(key.name);
+    if (!raw) continue;
+    const job = JSON.parse(raw);
+    if (job.status === "queued") {
+      selectedJob = job;
+      break;
+    }
+  }
+
+  if (!selectedJob) {
+    return ok({ job: null, retry_after_ms: 3000 });
+  }
+
+  const now = Date.now();
+  selectedJob.status = "leased";
+  selectedJob.leased_to = provider.id;
+  selectedJob.leased_at = new Date(now).toISOString();
+  selectedJob.lease_expires_at = new Date(now + 20_000).toISOString();
+  await env.THOUGHTS.put(`provider-job:${provider.id}:${selectedJob.job_id}`, JSON.stringify(selectedJob));
+
+  return ok({ job: selectedJob });
+}
+
+async function handleProviderJobRespond(request: Request, env: Env, jobId: string): Promise<Response> {
+  const provider = await getProviderByToken(request, env);
+  if (!provider) return unauthorized();
+
+  const key = `provider-job:${provider.id}:${jobId}`;
+  const raw = await env.THOUGHTS.get(key);
+  if (!raw) return notFound();
+
+  const job = JSON.parse(raw);
+  if (job.leased_to !== provider.id && job.provider_id !== provider.id) {
+    return unauthorized("job does not belong to this provider");
+  }
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const thought = typeof body?.thought === "string" ? body.thought.trim() : "";
+  const confidence = body?.confidence == null ? null : Number(body.confidence);
+  if (!thought) return badRequest("thought is required");
+  if (confidence != null && (Number.isNaN(confidence) || confidence < 0 || confidence > 1)) {
+    return badRequest("confidence must be between 0.0 and 1.0");
+  }
+
+  job.status = "completed";
+  job.responded_at = new Date().toISOString();
+  job.response = {
+    thought,
+    confidence,
+    meta: body?.meta ?? null
+  };
+  await env.THOUGHTS.put(key, JSON.stringify(job));
+
+  provider.last_provider_response_at = new Date().toISOString();
+  provider.updated_at = new Date().toISOString();
+  await env.PROVIDERS.put(`provider:${provider.id}`, JSON.stringify(provider));
+
+  return ok({ status: "accepted", job_id: jobId, thought_id: job.thought_id ?? null });
+}
+
+async function handleProviderJobFail(request: Request, env: Env, jobId: string): Promise<Response> {
+  const provider = await getProviderByToken(request, env);
+  if (!provider) return unauthorized();
+
+  const key = `provider-job:${provider.id}:${jobId}`;
+  const raw = await env.THOUGHTS.get(key);
+  if (!raw) return notFound();
+
+  let body: any = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+
+  const job = JSON.parse(raw);
+  job.status = "failed";
+  job.failed_at = new Date().toISOString();
+  job.fail_reason = normalizeOptionalString(body?.reason, 80) || "provider_failed";
+  job.fail_message = normalizeOptionalString(body?.message, 280);
+  await env.THOUGHTS.put(key, JSON.stringify(job));
+
+  return ok({ status: "released", job_id: jobId });
+}
+
+async function handleProviderTokenRotate(request: Request, env: Env): Promise<Response> {
+  const provider = await getProviderByToken(request, env);
+  if (!provider) return unauthorized();
+
+  const providerToken = generateProviderToken();
+  provider.provider_token_hash = await hashProviderToken(providerToken);
+  provider.provider_token_created_at = new Date().toISOString();
+  provider.updated_at = new Date().toISOString();
+  await env.PROVIDERS.put(`provider:${provider.id}`, JSON.stringify(provider));
+
+  return ok({ status: "rotated", provider_token: providerToken });
 }
 
 export default {
@@ -1915,6 +2106,28 @@ export default {
         results[id] = { provider: !!p, score: !!s };
       }
       return jsonResponse({ results, founding_map: Object.keys(FOUNDING_PROVIDER_MAP) });
+    }
+
+    if (request.method === "GET" && url.pathname === "/provider/me") {
+      return handleProviderMe(request, env);
+    }
+
+    if (request.method === "GET" && url.pathname === "/provider/jobs/next") {
+      return handleProviderJobsNext(request, env);
+    }
+
+    if (request.method === "POST" && /^\/provider\/jobs\/[^/]+\/respond$/.test(url.pathname)) {
+      const jobId = url.pathname.split("/")[3];
+      return handleProviderJobRespond(request, env, jobId);
+    }
+
+    if (request.method === "POST" && /^\/provider\/jobs\/[^/]+\/fail$/.test(url.pathname)) {
+      const jobId = url.pathname.split("/")[3];
+      return handleProviderJobFail(request, env, jobId);
+    }
+
+    if (request.method === "POST" && url.pathname === "/provider/token/rotate") {
+      return handleProviderTokenRotate(request, env);
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/score/")) {

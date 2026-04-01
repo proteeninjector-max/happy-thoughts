@@ -1245,6 +1245,67 @@ describe("HappyThoughts Phase 5", () => {
 });
 
 describe("HappyThoughts registration", () => {
+  it("POST /register defaults delivery_mode to hosted and issues a provider token", async () => {
+    const env = makeEnv();
+    const res = await worker.fetch(
+      new Request("https://test/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify({
+          name: "Hosted Bot",
+          description: "No infra needed.",
+          specialties: ["crypto/whale-tracking"],
+          payout_wallet: "0x5555555555555555555555555555555555555555",
+          accept_tos: true,
+          accept_privacy: true,
+          accept_provider_agreement: true,
+          accept_aup: true
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(201);
+    const json: any = await res.json();
+    expect(json.delivery_mode).toBe("hosted");
+    expect(json.delivery_status).toBe("ready");
+    expect(json.provider_token).toMatch(/^htp_/);
+    expect(json.provider_api_base).toBe("https://test/provider");
+
+    const provider = JSON.parse((await env.PROVIDERS.get(`provider:${json.provider_id}`)) as string);
+    expect(provider.delivery_mode).toBe("hosted");
+    expect(provider.delivery_status).toBe("ready");
+    expect(typeof provider.provider_token_hash).toBe("string");
+    expect(provider.provider_token_hash).not.toBe(json.provider_token);
+  });
+
+  it("POST /register requires callback_url when delivery_mode=webhook", async () => {
+    const env = makeEnv();
+    const res = await worker.fetch(
+      new Request("https://test/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify({
+          name: "Webhook Bot",
+          description: "Needs push delivery.",
+          specialties: ["crypto/whale-tracking"],
+          payout_wallet: "0x6666666666666666666666666666666666666666",
+          delivery_mode: "webhook",
+          accept_tos: true,
+          accept_privacy: true,
+          accept_provider_agreement: true,
+          accept_aup: true
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(400);
+    const json: any = await res.json();
+    expect(json.message).toContain("callback_url is required when delivery_mode=webhook");
+  });
   it("POST /register creates a provider with clean bot metadata", async () => {
     const env = makeEnv();
 
@@ -1441,6 +1502,130 @@ describe("HappyThoughts registration", () => {
       stake_type: "registration",
       forfeited: false
     });
+  });
+});
+
+describe("HappyThoughts provider hosted mode", () => {
+  it("provider can inspect self and rotate token", async () => {
+    const env = makeEnv();
+    const registerRes = await worker.fetch(
+      new Request("https://test/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify({
+          name: "Hosted Provider",
+          description: "Hosted mode provider.",
+          specialties: ["crypto/whale-tracking"],
+          payout_wallet: "0x7777777777777777777777777777777777777777",
+          accept_tos: true,
+          accept_privacy: true,
+          accept_provider_agreement: true,
+          accept_aup: true
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    const registered: any = await registerRes.json();
+    const token = registered.provider_token;
+
+    const meRes = await worker.fetch(
+      new Request("https://test/provider/me", {
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      env,
+      {} as any
+    );
+
+    expect(meRes.status).toBe(200);
+    const me: any = await meRes.json();
+    expect(me.provider_id).toBe(registered.provider_id);
+    expect(me.delivery_mode).toBe("hosted");
+
+    const rotateRes = await worker.fetch(
+      new Request("https://test/provider/token/rotate", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      env,
+      {} as any
+    );
+
+    expect(rotateRes.status).toBe(200);
+    const rotated: any = await rotateRes.json();
+    expect(rotated.provider_token).toMatch(/^htp_/);
+    expect(rotated.provider_token).not.toBe(token);
+  });
+
+  it("provider can lease and complete a hosted job", async () => {
+    const env = makeEnv();
+    const registerRes = await worker.fetch(
+      new Request("https://test/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify({
+          name: "Hosted Jobs",
+          description: "Hosted jobs provider.",
+          specialties: ["crypto/whale-tracking"],
+          payout_wallet: "0x8888888888888888888888888888888888888888",
+          accept_tos: true,
+          accept_privacy: true,
+          accept_provider_agreement: true,
+          accept_aup: true
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    const registered: any = await registerRes.json();
+    const providerId = registered.provider_id;
+    const token = registered.provider_token;
+
+    await env.THOUGHTS.put(
+      `provider-job:${providerId}:job_123`,
+      JSON.stringify({
+        job_id: "job_123",
+        thought_id: "ht_job_123",
+        provider_id: providerId,
+        prompt: "Analyze the whale flow.",
+        specialty: "crypto/whale-tracking",
+        status: "queued",
+        created_at: new Date().toISOString()
+      })
+    );
+
+    const nextRes = await worker.fetch(
+      new Request("https://test/provider/jobs/next", {
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      env,
+      {} as any
+    );
+
+    expect(nextRes.status).toBe(200);
+    const next: any = await nextRes.json();
+    expect(next.job.job_id).toBe("job_123");
+    expect(next.job.status).toBe("leased");
+
+    const respondRes = await worker.fetch(
+      new Request("https://test/provider/jobs/job_123/respond", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ thought: "Meaningful whale attention.", confidence: 0.83 })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(respondRes.status).toBe(200);
+    const respondedJob = JSON.parse((await env.THOUGHTS.get(`provider-job:${providerId}:job_123`)) as string);
+    expect(respondedJob.status).toBe("completed");
+    expect(respondedJob.response.thought).toBe("Meaningful whale attention.");
   });
 });
 
