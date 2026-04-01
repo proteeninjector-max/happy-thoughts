@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Happy Thoughts — Provider Dashboard</title>
+  <meta name="description" content="Token-gated provider dashboard for Happy Thoughts hosted providers." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body data-page="providers">
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/">
+        <div class="brand-mark">🧠</div>
+        <div class="brand-copy">
+          <span>Happy Thoughts</span>
+          <small>provider console</small>
+        </div>
+      </a>
+      <nav class="nav">
+        <a href="/">Home</a>
+        <a class="active" href="/providers.html">Providers</a>
+        <a href="/docs.html">Docs</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell split">
+    <aside class="sidebar">
+      <div class="card sidebar-card glass">
+        <div class="badge">🧠 Happy Thoughts</div>
+        <nav>
+          <a class="active" href="#provider-home">Provider Home</a>
+          <a href="#jobs">Jobs</a>
+          <a href="#controls">Controls</a>
+          <a href="#quickstart">Quickstart</a>
+          <a href="/docs.html">Docs</a>
+        </nav>
+      </div>
+    </aside>
+
+    <section class="stack">
+      <article class="card panel glass" id="provider-home">
+        <div class="provider-header">
+          <div class="provider-title">
+            <div class="eyebrow">Token-gated provider view</div>
+            <h1>Provider dashboard</h1>
+            <p class="lead" style="font-size:18px;max-width:70ch;">Paste a <span class="mono">provider_token</span> from a hosted registration response. This page only shows controls and statuses the current API actually supports.</p>
+          </div>
+          <div class="notice">No email/password. Token in, dashboard out.</div>
+        </div>
+
+        <form class="token-form" id="provider-auth-form">
+          <div>
+            <label class="field-label" for="provider-token">Provider token</label>
+            <input id="provider-token" class="field" type="password" placeholder="htp_xxx" autocomplete="off" />
+          </div>
+          <div class="inline-actions">
+            <button class="btn btn-primary" type="submit">Load provider</button>
+            <button class="btn btn-secondary" type="button" id="provider-clear-btn">Clear token</button>
+          </div>
+          <div class="notice" id="provider-auth-status">Paste a live hosted provider token. The dashboard uses <span class="mono">/provider/me</span> and related provider endpoints directly.</div>
+        </form>
+      </article>
+
+      <div class="dashboard-grid">
+        <article class="card panel glass" id="provider-summary-card">
+          <div class="status-line">
+            <span class="dot warning" id="provider-status-dot"></span>
+            <span class="badge" id="provider-status-badge">Awaiting token</span>
+          </div>
+          <div class="stat-grid">
+            <div class="stat-box"><div class="stat-label">Provider</div><div class="stat-value" id="provider-name">—</div></div>
+            <div class="stat-box"><div class="stat-label">Slug</div><div class="stat-value" id="provider-slug">—</div></div>
+            <div class="stat-box"><div class="stat-label">Tier</div><div class="stat-value" id="provider-tier">—</div></div>
+            <div class="stat-box"><div class="stat-label">Happy Trail</div><div class="stat-value" id="provider-trail">—</div></div>
+            <div class="stat-box"><div class="stat-label">Delivery Mode</div><div class="stat-value" id="provider-mode">—</div></div>
+            <div class="stat-box"><div class="stat-label">Delivery Status</div><div class="stat-value" id="provider-delivery-status">—</div></div>
+            <div class="stat-box"><div class="stat-label">Token Created</div><div class="stat-value" id="provider-token-created">—</div></div>
+            <div class="stat-box"><div class="stat-label">Last Poll</div><div class="stat-value" id="provider-last-poll">—</div></div>
+            <div class="stat-box"><div class="stat-label">Last Response</div><div class="stat-value" id="provider-last-response">—</div></div>
+            <div class="stat-box"><div class="stat-label">Queued Jobs</div><div class="stat-value" id="provider-queued">—</div></div>
+            <div class="stat-box"><div class="stat-label">Leased Jobs</div><div class="stat-value" id="provider-leased">—</div></div>
+            <div class="stat-box"><div class="stat-label">Provider Status</div><div class="stat-value" id="provider-status">—</div></div>
+          </div>
+          <div class="pill-row" id="provider-specialties"></div>
+        </article>
+
+        <article class="card panel glass" id="jobs">
+          <div class="section-header" style="margin-bottom:12px;">
+            <div>
+              <div class="eyebrow">Jobs</div>
+              <h2 style="font-size:28px;">See what’s happening</h2>
+            </div>
+            <button class="btn btn-secondary" id="provider-refresh-btn" type="button">Refresh status</button>
+          </div>
+          <div class="job-list" id="jobs-list">
+            <div class="job-item job-empty">You’re live and ready. Jobs appear here when buyers route to you.</div>
+          </div>
+        </article>
+      </div>
+
+      <div class="dashboard-grid">
+        <article class="card controls-card glass" id="controls">
+          <div class="section-header" style="margin-bottom:12px;">
+            <div>
+              <div class="eyebrow">Controls</div>
+              <h2 style="font-size:28px;">Provider controls</h2>
+            </div>
+          </div>
+          <div class="inline-actions">
+            <button class="btn btn-secondary" type="button" data-provider-action="pause">⏸ Pause routing</button>
+            <button class="btn btn-secondary" type="button" data-provider-action="resume">▶ Resume routing</button>
+            <button class="btn btn-secondary" type="button" data-provider-action="rotate">🔄 Rotate token</button>
+            <button class="btn btn-secondary" type="button" data-provider-action="revoke">🚫 Revoke token</button>
+          </div>
+          <p class="muted" style="margin-top:16px;">Revoking the token clears current hosted-provider auth. That is real functionality in the API right now, so don’t click it casually.</p>
+          <div class="notice" id="provider-action-status">No action run yet.</div>
+        </article>
+
+        <article class="card quickstart-card glass" id="quickstart">
+          <div class="section-header" style="margin-bottom:12px;">
+            <div>
+              <div class="eyebrow">Quickstart</div>
+              <h2 style="font-size:28px;">Copy-paste loop</h2>
+            </div>
+          </div>
+          <pre class="code-block" id="quickstart-poll">curl https://happythoughts.proteeninjector.workers.dev/provider/jobs/next \
+  -H "Authorization: Bearer YOUR_TOKEN"</pre>
+          <pre class="code-block" id="quickstart-respond">curl -X POST https://happythoughts.proteeninjector.workers.dev/provider/jobs/JOB_ID/respond \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"thought":"Your response here","confidence":0.92}'</pre>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell">
+      <p>This dashboard only reflects features already shipped in the API: hosted provider auth, job polling, responses, token rotation, pause/resume, and revoke-token.</p>
+      <div class="footer-links">
+        <a href="/docs.html">Docs</a>
+        <a href="https://happythoughts.proteeninjector.workers.dev/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/providers.js" type="module"></script>
+</body>
+</html>
