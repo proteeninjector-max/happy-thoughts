@@ -826,38 +826,23 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   }
 
   const candidates: any[] = [];
-  const foundingProviderId = FOUNDING_PROVIDER_MAP[specialty];
+  const list = await env.PROVIDERS.list({ prefix: "provider:" });
 
-  if (foundingProviderId) {
-    const providerRaw = await env.PROVIDERS.get(`provider:${foundingProviderId}`);
-    const scoreRaw = await env.SCORES.get(`score:${foundingProviderId}`);
+  for (const key of list.keys) {
+    const raw = await env.PROVIDERS.get(key.name);
+    if (!raw) continue;
+    const provider = JSON.parse(raw);
 
-    if (providerRaw && scoreRaw) {
-      const provider = JSON.parse(providerRaw);
-      const score = JSON.parse(scoreRaw);
+    if (!matchSpecialty(specialty, provider.specialties || [])) continue;
+    if (provider.delivery_status && provider.delivery_status !== "ready") continue;
 
-      if (!Array.isArray(score.flags) || score.flags.length === 0) {
-        candidates.push({ provider, score });
-      }
-    }
-  } else {
-    const list = await env.PROVIDERS.list({ prefix: "provider:" });
+    const scoreRaw = await env.SCORES.get(`score:${provider.id}`);
+    if (!scoreRaw) continue;
+    const score = JSON.parse(scoreRaw);
 
-    for (const key of list.keys) {
-      const raw = await env.PROVIDERS.get(key.name);
-      if (!raw) continue;
-      const provider = JSON.parse(raw);
+    if (Array.isArray(score.flags) && score.flags.length > 0) continue;
 
-      if (!matchSpecialty(specialty, provider.specialties || [])) continue;
-
-      const scoreRaw = await env.SCORES.get(`score:${provider.id}`);
-      if (!scoreRaw) continue;
-      const score = JSON.parse(scoreRaw);
-
-      if (Array.isArray(score.flags) && score.flags.length > 0) continue;
-
-      candidates.push({ provider, score });
-    }
+    candidates.push({ provider, score });
   }
 
   if (candidates.length === 0) {

@@ -53,6 +53,9 @@ async function seedProvider(env: any, providerId = "prov_1") {
     description: "Test thought",
     specialties: ["trading/signals"],
     payout_wallet: "0xabc",
+    callback_url: "internal://pi_signals",
+    delivery_mode: "webhook",
+    delivery_status: "ready",
     tier: "thinker"
   };
   const score = {
@@ -1626,6 +1629,77 @@ describe("HappyThoughts provider hosted mode", () => {
     const respondedJob = JSON.parse((await env.THOUGHTS.get(`provider-job:${providerId}:job_123`)) as string);
     expect(respondedJob.status).toBe("completed");
     expect(respondedJob.response.thought).toBe("Meaningful whale attention.");
+  });
+
+  it("/think can route through a hosted provider queue", async () => {
+    const env = makeEnv();
+    const registerRes = await worker.fetch(
+      new Request("https://test/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify({
+          name: "Hosted Think",
+          description: "Hosted think provider.",
+          specialties: ["crypto/whale-tracking"],
+          payout_wallet: "0x9999999999999999999999999999999999999999",
+          accept_tos: true,
+          accept_privacy: true,
+          accept_provider_agreement: true,
+          accept_aup: true
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    const registered: any = await registerRes.json();
+    const providerId = registered.provider_id;
+    const token = registered.provider_token;
+
+    const thinkPromise = worker.fetch(
+      new Request("https://test/think", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify({
+          prompt: "Track the whale move.",
+          specialty: "crypto/whale-tracking",
+          buyer_wallet: "0xbuyer"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const nextRes = await worker.fetch(
+      new Request("https://test/provider/jobs/next", {
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      env,
+      {} as any
+    );
+    const next: any = await nextRes.json();
+    expect(next.job.provider_id).toBe(providerId);
+
+    await worker.fetch(
+      new Request(`https://test/provider/jobs/${next.job.job_id}/respond`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ thought: "Hosted provider says whale attention is real.", confidence: 0.91 })
+      }),
+      env,
+      {} as any
+    );
+
+    const thinkRes = await thinkPromise;
+    expect(thinkRes.status).toBe(200);
+    const thinkJson: any = await thinkRes.json();
+    expect(thinkJson.provider_id).toBe(providerId);
+    expect(thinkJson.thought).toContain("Hosted provider says whale attention is real.");
   });
 });
 

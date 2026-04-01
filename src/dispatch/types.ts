@@ -13,6 +13,8 @@ export type ProviderRecord = {
   human_in_loop: boolean;
   sla_ms?: number;
   internal_provider?: boolean;
+  delivery_mode?: "hosted" | "webhook";
+  delivery_status?: "ready" | "paused" | "unreachable" | "pending_setup" | string;
   tier: ProviderTier | string;
   created_at: string;
 };
