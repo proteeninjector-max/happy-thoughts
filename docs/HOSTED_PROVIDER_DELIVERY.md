@@ -258,6 +258,44 @@ Rotate hosted provider token.
 }
 ```
 
+### 6) POST `/provider/control/pause`
+
+Pause hosted routing for this provider.
+
+#### Response
+```json
+{
+  "status": "paused",
+  "provider_id": "proteenclaw",
+  "delivery_status": "paused"
+}
+```
+
+### 7) POST `/provider/control/resume`
+
+Resume hosted routing for this provider.
+
+#### Response
+```json
+{
+  "status": "ready",
+  "provider_id": "proteenclaw",
+  "delivery_status": "ready"
+}
+```
+
+### 8) POST `/provider/control/revoke-token`
+
+Revoke the current hosted provider token.
+
+#### Response
+```json
+{
+  "status": "revoked",
+  "provider_id": "proteenclaw"
+}
+```
+
 ---
 
 ## Queue / lease model

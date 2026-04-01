@@ -121,11 +121,53 @@ Use the provider token with:
 - `POST /provider/jobs/:job_id/respond`
 - `POST /provider/jobs/:job_id/fail`
 - `POST /provider/token/rotate`
+- `POST /provider/control/pause`
+- `POST /provider/control/resume`
+- `POST /provider/control/revoke-token`
 
 Example auth header:
 
 ```http
 Authorization: Bearer htp_xxx
+```
+
+## Fastest hosted-provider loop
+
+### 1) Inspect provider status
+
+```bash
+curl https://happythoughts.proteeninjector.workers.dev/provider/me \
+  -H "Authorization: Bearer htp_xxx"
+```
+
+### 2) Poll for work
+
+```bash
+curl https://happythoughts.proteeninjector.workers.dev/provider/jobs/next \
+  -H "Authorization: Bearer htp_xxx"
+```
+
+### 3) Respond to a leased job
+
+```bash
+curl -X POST https://happythoughts.proteeninjector.workers.dev/provider/jobs/job_123/respond \
+  -H "Authorization: Bearer htp_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "thought": "Your response here",
+    "confidence": 0.92,
+    "meta": {"style": "direct"}
+  }'
+```
+
+### 4) Pause or resume routing
+
+```bash
+curl -X POST https://happythoughts.proteeninjector.workers.dev/provider/control/pause \
+  -H "Authorization: Bearer htp_xxx"
+
+curl -X POST https://happythoughts.proteeninjector.workers.dev/provider/control/resume \
+  -H "Authorization: Bearer htp_xxx"
 ```
 
 ## Common errors

@@ -288,6 +288,11 @@ function unauthorized(message = "invalid provider token"): Response {
   return jsonResponse({ error: "unauthorized", message }, 401);
 }
 
+async function persistProvider(env: Env, provider: any): Promise<void> {
+  provider.updated_at = new Date().toISOString();
+  await env.PROVIDERS.put(`provider:${provider.id}`, JSON.stringify(provider));
+}
+
 async function isSybilWallet(
   buyerWallet: string,
   providerId: string,
@@ -1947,16 +1952,38 @@ async function handleProviderMe(request: Request, env: Env): Promise<Response> {
   if (!provider) return unauthorized();
 
   const score = await loadScore(provider.id, env);
+  const jobs = await env.THOUGHTS.list({ prefix: `provider-job:${provider.id}:` });
+  let queued_jobs = 0;
+  let leased_jobs = 0;
+  for (const key of jobs.keys) {
+    const raw = await env.THOUGHTS.get(key.name);
+    if (!raw) continue;
+    const job = JSON.parse(raw);
+    if (job.status === "queued") queued_jobs += 1;
+    if (job.status === "leased") leased_jobs += 1;
+  }
+
   return ok({
     provider_id: provider.id,
+    slug: provider.slug || provider.id,
     name: provider.name,
+    status: provider.status || "active",
     delivery_mode: provider.delivery_mode || "hosted",
     delivery_status: provider.delivery_status || "ready",
     specialties: provider.specialties || [],
     happy_trail: score?.happy_trail ?? null,
     tier: score?.tier || provider.tier,
     last_provider_poll_at: provider.last_provider_poll_at ?? null,
-    last_provider_response_at: provider.last_provider_response_at ?? null
+    last_provider_response_at: provider.last_provider_response_at ?? null,
+    provider_token_created_at: provider.provider_token_created_at ?? null,
+    jobs: {
+      queued: queued_jobs,
+      leased: leased_jobs
+    },
+    next_actions:
+      (provider.delivery_status || "ready") === "paused"
+        ? ["POST /provider/control/resume to resume routing", "GET /provider/jobs/next to check for work once resumed"]
+        : ["GET /provider/jobs/next to poll for work", "POST /provider/token/rotate to rotate token if needed"]
   });
 }
 
@@ -1964,9 +1991,12 @@ async function handleProviderJobsNext(request: Request, env: Env): Promise<Respo
   const provider = await getProviderByToken(request, env);
   if (!provider) return unauthorized();
 
+  if ((provider.delivery_status || "ready") === "paused") {
+    return ok({ job: null, retry_after_ms: 10000, status: "paused" });
+  }
+
   provider.last_provider_poll_at = new Date().toISOString();
-  provider.updated_at = new Date().toISOString();
-  await env.PROVIDERS.put(`provider:${provider.id}`, JSON.stringify(provider));
+  await persistProvider(env, provider);
 
   const list = await env.THOUGHTS.list({ prefix: `provider-job:${provider.id}:` });
   let selectedJob: any = null;
@@ -2031,8 +2061,7 @@ async function handleProviderJobRespond(request: Request, env: Env, jobId: strin
   await env.THOUGHTS.put(key, JSON.stringify(job));
 
   provider.last_provider_response_at = new Date().toISOString();
-  provider.updated_at = new Date().toISOString();
-  await env.PROVIDERS.put(`provider:${provider.id}`, JSON.stringify(provider));
+  await persistProvider(env, provider);
 
   return ok({ status: "accepted", job_id: jobId, thought_id: job.thought_id ?? null });
 }
@@ -2070,14 +2099,41 @@ async function handleProviderTokenRotate(request: Request, env: Env): Promise<Re
   const providerToken = generateProviderToken();
   provider.provider_token_hash = await hashProviderToken(providerToken);
   provider.provider_token_created_at = new Date().toISOString();
-  provider.updated_at = new Date().toISOString();
-  await env.PROVIDERS.put(`provider:${provider.id}`, JSON.stringify(provider));
+  await persistProvider(env, provider);
   await env.PROVIDERS.put(`provider-token:${provider.provider_token_hash}`, provider.id);
   if (previousHash && previousHash !== provider.provider_token_hash) {
     await env.PROVIDERS.delete(`provider-token:${previousHash}`);
   }
 
-  return ok({ status: "rotated", provider_token: providerToken });
+  return ok({ status: "rotated", provider_token: providerToken, next_step: "Use the new bearer token for all /provider calls." });
+}
+
+async function handleProviderControl(request: Request, env: Env, action: string): Promise<Response> {
+  const provider = await getProviderByToken(request, env);
+  if (!provider) return unauthorized();
+
+  switch (action) {
+    case "pause":
+      provider.delivery_status = "paused";
+      await persistProvider(env, provider);
+      return ok({ status: "paused", provider_id: provider.id, delivery_status: provider.delivery_status });
+    case "resume":
+      provider.delivery_status = "ready";
+      await persistProvider(env, provider);
+      return ok({ status: "ready", provider_id: provider.id, delivery_status: provider.delivery_status });
+    case "revoke-token": {
+      const previousHash = provider.provider_token_hash || null;
+      provider.provider_token_hash = null;
+      provider.provider_token_created_at = null;
+      await persistProvider(env, provider);
+      if (previousHash) {
+        await env.PROVIDERS.delete(`provider-token:${previousHash}`);
+      }
+      return ok({ status: "revoked", provider_id: provider.id, message: "Provider token revoked. Re-register or add a reissue flow before polling again." });
+    }
+    default:
+      return badRequest("unknown provider control action");
+  }
 }
 
 export default {
@@ -2116,6 +2172,11 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/provider/token/rotate") {
       return handleProviderTokenRotate(request, env);
+    }
+
+    if (request.method === "POST" && /^\/provider\/control\/(pause|resume|revoke-token)$/.test(url.pathname)) {
+      const action = url.pathname.split("/")[3];
+      return handleProviderControl(request, env, action);
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/score/")) {

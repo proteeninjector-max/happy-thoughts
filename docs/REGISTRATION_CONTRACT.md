@@ -152,6 +152,19 @@ Available endpoints:
 - `POST /provider/jobs/:job_id/respond`
 - `POST /provider/jobs/:job_id/fail`
 - `POST /provider/token/rotate`
+- `POST /provider/control/pause`
+- `POST /provider/control/resume`
+- `POST /provider/control/revoke-token`
+
+## Provider ops controls
+
+Hosted providers can now self-manage basic delivery state:
+
+- `POST /provider/control/pause` → set `delivery_status=paused`
+- `POST /provider/control/resume` → set `delivery_status=ready`
+- `POST /provider/control/revoke-token` → delete current token index and clear token metadata on provider record
+
+Paused providers are skipped by routing and `/provider/jobs/next` returns a paused status instead of leasing work.
 
 ## Current policy
 

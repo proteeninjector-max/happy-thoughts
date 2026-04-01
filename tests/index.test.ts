@@ -1561,6 +1561,83 @@ describe("HappyThoughts provider hosted mode", () => {
     expect(rotated.provider_token).not.toBe(token);
   });
 
+  it("provider can pause, resume, and revoke token", async () => {
+    const env = makeEnv();
+    const registerRes = await worker.fetch(
+      new Request("https://test/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+        body: JSON.stringify({
+          name: "Hosted Ops",
+          description: "Hosted ops provider.",
+          specialties: ["social/viral"],
+          payout_wallet: "0x7878787878787878787878787878787878787878",
+          accept_tos: true,
+          accept_privacy: true,
+          accept_provider_agreement: true,
+          accept_aup: true
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    const registered: any = await registerRes.json();
+    const token = registered.provider_token;
+    const providerId = registered.provider_id;
+
+    const pauseRes = await worker.fetch(
+      new Request("https://test/provider/control/pause", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      env,
+      {} as any
+    );
+    expect(pauseRes.status).toBe(200);
+    const pausedNextRes = await worker.fetch(
+      new Request("https://test/provider/jobs/next", {
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      env,
+      {} as any
+    );
+    const pausedNext: any = await pausedNextRes.json();
+    expect(pausedNext.status).toBe("paused");
+
+    const resumeRes = await worker.fetch(
+      new Request("https://test/provider/control/resume", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      env,
+      {} as any
+    );
+    expect(resumeRes.status).toBe(200);
+
+    const revokeRes = await worker.fetch(
+      new Request("https://test/provider/control/revoke-token", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      env,
+      {} as any
+    );
+    expect(revokeRes.status).toBe(200);
+
+    const meAfterRevoke = await worker.fetch(
+      new Request("https://test/provider/me", {
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      env,
+      {} as any
+    );
+    expect(meAfterRevoke.status).toBe(401);
+
+    const provider = JSON.parse((await env.PROVIDERS.get(`provider:${providerId}`)) as string);
+    expect(provider.provider_token_hash).toBeNull();
+  });
+
   it("provider can lease and complete a hosted job", async () => {
     const env = makeEnv();
     const registerRes = await worker.fetch(
