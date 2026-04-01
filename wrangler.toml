@@ -3,6 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2025-03-01"
 account_id = "e99a0bfb3b03494b53b2d47adcc9072a"
 workers_dev = true
+routes = [
+  { pattern = "happythoughts.cc", custom_domain = true },
+  { pattern = "www.happythoughts.cc", custom_domain = true }
+]
 
 [vars]
 # PLACEHOLDER — set in deployment environment
