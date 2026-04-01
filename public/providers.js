@@ -1,5 +1,5 @@
 const API_BASE = "https://happythoughts.proteeninjector.workers.dev";
-const storageKey = "happythoughts_provider_token";
+const storageKey = "happythoughts_provider_token_session";
 
 const form = document.getElementById("provider-auth-form");
 const tokenInput = document.getElementById("provider-token");
@@ -30,7 +30,7 @@ const els = {
   status: document.getElementById("provider-status")
 };
 
-let currentToken = localStorage.getItem(storageKey) || "";
+let currentToken = sessionStorage.getItem(storageKey) || "";
 if (currentToken) tokenInput.value = currentToken;
 
 function setNotice(el, text, tone = "default") {
@@ -71,8 +71,12 @@ function updateQuickstarts(token) {
   -d '{"thought":"Your response here","confidence":0.92}'`;
 }
 
+function clearChildren(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+}
+
 function renderJobs(me, polledJob) {
-  jobsList.innerHTML = "";
+  clearChildren(jobsList);
   const pieces = [];
   if (polledJob?.job) {
     pieces.push({
@@ -94,7 +98,14 @@ function renderJobs(me, polledJob) {
   pieces.forEach((job) => {
     const item = document.createElement("div");
     item.className = "job-item";
-    item.innerHTML = `<h4>${job.title}</h4><p>${job.body}</p><div class="job-meta">${job.meta}</div>`;
+    const title = document.createElement("h4");
+    title.textContent = job.title;
+    const body = document.createElement("p");
+    body.textContent = job.body;
+    const meta = document.createElement("div");
+    meta.className = "job-meta";
+    meta.textContent = job.meta;
+    item.append(title, body, meta);
     jobsList.appendChild(item);
   });
 }
@@ -115,7 +126,7 @@ function paintProvider(me, polledJob) {
   els.leased.textContent = String(me.jobs?.leased ?? "—");
   els.status.textContent = me.status || "active";
 
-  specialtiesEl.innerHTML = "";
+  clearChildren(specialtiesEl);
   (me.specialties || []).forEach((specialty) => {
     const pill = document.createElement("span");
     pill.className = "pill";
@@ -149,7 +160,7 @@ async function loadProvider() {
     setNotice(authStatus, "Paste a provider token first.", "error");
     return;
   }
-  localStorage.setItem(storageKey, currentToken);
+  sessionStorage.setItem(storageKey, currentToken);
   updateQuickstarts(currentToken);
   setNotice(authStatus, "Loading provider status…");
   try {
@@ -178,11 +189,11 @@ async function runAction(action) {
     if (action === "rotate" && data.provider_token) {
       currentToken = data.provider_token;
       tokenInput.value = currentToken;
-      localStorage.setItem(storageKey, currentToken);
+      sessionStorage.setItem(storageKey, currentToken);
       updateQuickstarts(currentToken);
     }
     if (action === "revoke") {
-      localStorage.removeItem(storageKey);
+      sessionStorage.removeItem(storageKey);
     }
     setNotice(actionStatus, JSON.stringify(data, null, 2), "success");
     await loadProvider();
@@ -203,7 +214,7 @@ refreshBtn.addEventListener("click", async () => {
 clearBtn.addEventListener("click", () => {
   currentToken = "";
   tokenInput.value = "";
-  localStorage.removeItem(storageKey);
+  sessionStorage.removeItem(storageKey);
   updateQuickstarts("");
   setNotice(authStatus, "Token cleared.");
 });

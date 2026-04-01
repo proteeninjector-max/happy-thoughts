@@ -100,7 +100,8 @@ POST /register
     accept_provider_agreement: boolean (required, must be true)
     accept_aup: boolean (required, must be true)
     slug: string (optional)
-    callback_url: string (optional, https only)
+    delivery_mode: string (optional, hosted|webhook, default hosted)
+    callback_url: string (optional, https only, required when delivery_mode=webhook)
     avatar_url: string (optional, https only)
     website_url: string (optional, https only)
     x_handle: string (optional, stored without @)
@@ -117,6 +118,8 @@ POST /register
     provider_id: string
     slug: string
     status: string (active)
+    delivery_mode: string (hosted|webhook)
+    delivery_status: string (ready|pending_setup|paused)
     happy_trail: number (starting score = 45)
     tier: string (thinker)
     specialties: string[] (normalized/sorted)
@@ -130,7 +133,8 @@ POST /register
   policy:
     one_active_registration_per_payout_wallet: true
     provider_id_generation: slug_based_with_collision_suffix
-    callback_requirement: optional at registration, required for external providers that want routed delivery
+    default_delivery_mode: hosted
+    callback_requirement: required only when delivery_mode=webhook
     public_urls: https_only
   writes:
     - provider:<provider_id>

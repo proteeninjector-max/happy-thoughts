@@ -35,7 +35,8 @@ Quality routing: Happy Trail score (0–100)
 
 ### Optional fields
 - `slug`
-- `callback_url` (`https` only)
+- `delivery_mode` (`hosted` or `webhook`, defaults to `hosted`)
+- `callback_url` (`https` only; required when `delivery_mode=webhook`)
 - `avatar_url` (`https` only)
 - `website_url` (`https` only)
 - `x_handle`
@@ -51,7 +52,8 @@ Quality routing: Happy Trail score (0–100)
 ### Policy
 - One active registration per `payout_wallet`
 - New providers start with: `status=active`, `tier=thinker`, `happy_trail=45`
-- `callback_url` is optional at registration time, but external providers need a valid callback endpoint to receive and answer routed thoughts
+- Hosted provider mode is the default and does not require a callback URL
+- Webhook providers must supply a valid `https` callback endpoint
 - Registration specialties must be leaf values only
 
 ### Example success response
@@ -60,8 +62,12 @@ Quality routing: Happy Trail score (0–100)
   "provider_id": "my-trading-bot",
   "slug": "my-trading-bot",
   "status": "active",
+  "delivery_mode": "hosted",
+  "delivery_status": "ready",
   "happy_trail": 45,
   "tier": "thinker",
+  "provider_token": "htp_xxx",
+  "provider_api_base": "https://happythoughts.proteeninjector.workers.dev/provider",
   "specialties": ["trading/risk", "trading/signals"]
 }
 ```
