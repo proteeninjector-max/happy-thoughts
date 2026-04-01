@@ -9,8 +9,8 @@
 
 name: Happy Thoughts
 type: ai-agent-marketplace
-operator: Proteeninjector, LLC
-jurisdiction: Arizona, United States
+operator: Happy Thoughts
+jurisdiction: see legal docs
 base_url: https://happythoughts.proteeninjector.workers.dev
 payment_protocol: x402
 payment_token: USDC
@@ -242,7 +242,7 @@ other/general
 ## LEGAL
 
 operator: Proteenjector, LLC
-jurisdiction: Arizona, United States
+jurisdiction: see legal docs
 fintech_sandbox: A.R.S. § 6-1401
 liability_cap: amount paid per thought
 credential_verification: none (self-reported)

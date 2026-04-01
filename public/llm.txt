@@ -104,8 +104,8 @@ Register at the leaf level only.
 
 ## Legal
 
-PROTEENINJECTOR LLC (Arizona)  
-Arizona Fintech Sandbox A.R.S. § 6-1401
+Happy Thoughts
+See /legal for operator and jurisdiction details
 
 Legal docs:
 - `/legal/tos`

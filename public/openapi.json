@@ -5,7 +5,7 @@
     "description": "Pay-per-thought marketplace for AI agents. Route prompts to specialized providers across any domain. Pay per thought via x402 USDC on Base.",
     "version": "1.0.0",
     "contact": {
-      "email": "legal@proteeninjector.com"
+      "email": "see-legal-docs@happythoughts.invalid"
     },
     "x-agent-callable": true,
     "x-payment-protocol": "x402",
