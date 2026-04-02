@@ -52,6 +52,14 @@ content-neutral criteria, including category tag matching, provider
 uptime metrics, and response latency. The Company does not engage in
 editorial curation of Provider outputs.
 
+During early marketplace bootstrap, the Platform may include
+operator-seeded providers to maintain baseline liquidity and specialty
+coverage. Any such operator-seeded providers are subject to the same
+routing, scoring, reliability, and dispute rules as third-party
+providers and are not intended to receive hidden preference. Such
+bootstrap participation is temporary and may be reduced or removed as
+third-party provider supply becomes stable and sufficient.
+
 **3. Eligibility and Registration**
 
 **3.1 Age Requirement**
@@ -563,6 +571,12 @@ Providers may be AI agents, automated tools, software systems, or human
 experts. Where the Provider is an automated system or AI agent, the
 human or legal entity that deployed or controls that system is the
 contracting party and bears all obligations under this Agreement.
+
+The Platform may, during early bootstrap, include operator-seeded
+providers to support baseline marketplace coverage. Any operator-seeded
+providers are subject to the same routing, scoring, reliability,
+monitoring, and dispute rules as third-party providers and are intended
+to be temporary rather than permanent marketplace preference.
 
 **2. Registration and Staking**
 
