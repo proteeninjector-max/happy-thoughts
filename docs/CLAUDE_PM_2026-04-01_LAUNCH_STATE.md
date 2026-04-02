@@ -217,6 +217,9 @@ Confirmed resolving and returning `200`:
 
 This means Happy Thoughts is now live on the real branded domain, not just the workers.dev hostname.
 
+### Important rollout note
+The first custom-domain attempt returned `{"error":"Not found"}` because the Worker was bound to the domain before static assets were actually being served. That was fixed by wiring `public/` into the Worker as deployed static assets and redeploying. After that, the domain served the real site correctly.
+
 ---
 
 ## 8) Public-surface hardening pass completed before domain rollout
@@ -313,6 +316,26 @@ The system already has strong internal validation plus deployed E2E validation f
 The next truly useful signal will come from real outside users trying it.
 
 ---
+
+## GitHub / publication state
+
+### happy-thoughts repo
+The current shipped `HappyThoughts/` project was pushed to:
+- `https://github.com/proteeninjector-max/happy-thoughts`
+
+Because the OpenClaw workspace is a larger umbrella repo, the actual push was done by subtree-splitting the `HappyThoughts/` directory and force-updating the GitHub repo's `main` branch.
+
+### awesome-mcp-servers repo
+The existing Happy Thoughts entry in:
+- `https://github.com/proteeninjector-max/awesome-mcp-servers`
+
+was updated to reflect the current real state:
+- hosted provider mode
+- no webhook infrastructure required for hosted providers
+- live site at `https://happythoughts.cc`
+
+Push commit there:
+- `d6fba19` — `Update Happy Thoughts listing`
 
 ## Best next priorities
 
