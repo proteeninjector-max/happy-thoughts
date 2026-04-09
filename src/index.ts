@@ -890,6 +890,54 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       }
 
       const cachedMode = cached.provider_meta?.mode || "quick";
+      const cachedPanels = cachedMode === "consensus"
+        ? {
+            final_answer: {
+              text: cached.response,
+              confidence: thoughtRecord.confidence,
+              confidence_reason: cached.provider_meta?.degraded
+                ? "This cached consensus answer was generated in fallback mode after one or more model steps failed."
+                : "Served from cache."
+            },
+            consensus_summary: {
+              agreement: cached.provider_meta?.structured?.agreement || [],
+              disagreements: cached.provider_meta?.structured?.disagreements || [],
+              normalized: cached.provider_meta?.normalized || null
+            },
+            model_answers: Array.isArray(cached.provider_meta?.providers)
+              ? cached.provider_meta.providers.map((item: any) => {
+                  const parsed = Array.isArray(cached.provider_meta?.parsed_answers)
+                    ? cached.provider_meta.parsed_answers.find((entry: any) => entry.provider === item.provider && entry.model === item.model)?.parsed
+                    : null;
+                  return {
+                    provider: item.provider,
+                    model: item.model,
+                    status: item.ok ? "ok" : "failed",
+                    response_time_ms: item.response_time_ms,
+                    error: item.error || null,
+                    raw_answer: item.answer,
+                    parsed,
+                    display: parsed
+                      ? {
+                          thesis: parsed.thesis,
+                          key_points: parsed.key_points,
+                          caveats: parsed.caveats,
+                          bottom_line: parsed.bottom_line
+                        }
+                      : null
+                  };
+                })
+              : [],
+            synthesis: {
+              provider: cached.provider_meta?.synthesis?.provider || cached.provider_meta?.synthesis_provider || null,
+              model: cached.provider_meta?.synthesis?.model || cached.provider_meta?.synthesis_model || null,
+              degraded: !!cached.provider_meta?.degraded,
+              failure_count: cached.provider_meta?.failure_count || 0,
+              failed_steps: cached.provider_meta?.failed_providers || []
+            }
+          }
+        : null;
+
       return ok({
         thought_id: cachedMode === "consensus" ? (cached.thought_id || thoughtId) : thoughtId,
         answer_mode: cachedMode,
@@ -913,6 +961,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
             ? [{ provider: cached.provider_id, model: cached.provider_meta?.model_hint || "unknown" }]
             : [],
         models_failed: Array.isArray(cached.provider_meta?.failed_providers) ? cached.provider_meta.failed_providers : [],
+        panels: cachedPanels,
         meta: cached.provider_meta ?? null
       });
     }
@@ -1008,6 +1057,27 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       }
     }
 
+    const modelPanels = consensus.answers.map((item) => {
+      const parsed = consensus.parsed_answers.find((entry) => entry.provider === item.provider && entry.model === item.model)?.parsed;
+      return {
+        provider: item.provider,
+        model: item.model,
+        status: item.ok ? "ok" : "failed",
+        response_time_ms: item.response_time_ms,
+        error: item.error || null,
+        raw_answer: item.answer,
+        parsed: parsed || null,
+        display: parsed
+          ? {
+              thesis: parsed.thesis,
+              key_points: parsed.key_points,
+              caveats: parsed.caveats,
+              bottom_line: parsed.bottom_line
+            }
+          : null
+      };
+    });
+
     return ok({
       thought_id: consensusId,
       answer_mode: "consensus",
@@ -1023,12 +1093,34 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       disclaimer,
       models_used: consensus.answers.filter((item) => item.ok).map((item) => ({ provider: item.provider, model: item.model })),
       models_failed: consensus.failed_providers,
+      panels: {
+        final_answer: {
+          text: finalStructured.blended_answer,
+          confidence: finalStructured.confidence,
+          confidence_reason: confidenceReason
+        },
+        consensus_summary: {
+          agreement: finalStructured.agreement,
+          disagreements: finalStructured.disagreements,
+          normalized: consensus.normalized
+        },
+        model_answers: modelPanels,
+        synthesis: {
+          provider: consensus.synthesis?.provider || null,
+          model: consensus.synthesis?.model || null,
+          degraded: consensus.degraded,
+          failure_count: consensus.failure_count,
+          failed_steps: consensus.failed_providers
+        }
+      },
       meta: {
         structured: finalStructured,
         degraded: consensus.degraded,
         failure_count: consensus.failure_count,
         failed_providers: consensus.failed_providers,
         providers: consensus.answers,
+        parsed_answers: consensus.parsed_answers,
+        normalized: consensus.normalized,
         synthesis_model: consensus.synthesis?.model || null,
         synthesis_provider: consensus.synthesis?.provider || null
       }
