@@ -589,6 +589,13 @@ async function handleInternalConsensus(request: Request, env: Env): Promise<Resp
     const result = await runConsensus(prompt, specialty, env);
     const consensusId = `consensus_${crypto.randomUUID()}`;
     const createdAt = new Date().toISOString();
+    const structured = result.synthesis?.structured || {
+      agreement: [],
+      disagreements: result.failed_providers.map((item) => `${item.provider} failed: ${item.error}`),
+      blended_answer: result.answers.filter((item) => item.answer).map((item) => item.answer).join("\n\n"),
+      confidence: "low" as const,
+      raw_output: result.answers.filter((item) => item.answer).map((item) => item.answer).join("\n\n")
+    };
     const lineageRecord = {
       consensus_id: consensusId,
       mode: "consensus_v1",
@@ -597,7 +604,10 @@ async function handleInternalConsensus(request: Request, env: Env): Promise<Resp
       created_at: createdAt,
       providers: result.answers,
       synthesis: result.synthesis,
-      final_answer: result.synthesis.structured.blended_answer
+      degraded: result.degraded,
+      failure_count: result.failure_count,
+      failed_providers: result.failed_providers,
+      final_answer: structured.blended_answer
     };
     await env.THOUGHTS.put(`consensus:${consensusId}`, JSON.stringify(lineageRecord));
 
@@ -608,8 +618,11 @@ async function handleInternalConsensus(request: Request, env: Env): Promise<Resp
       specialty,
       providers: result.answers,
       synthesis: result.synthesis,
-      final_answer: result.synthesis.structured.blended_answer,
-      structured: result.synthesis.structured
+      degraded: result.degraded,
+      failure_count: result.failure_count,
+      failed_providers: result.failed_providers,
+      final_answer: structured.blended_answer,
+      structured
     });
   } catch (err: any) {
     return jsonResponse(
@@ -749,6 +762,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
   const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
   const minConfidence = Number(body?.min_confidence ?? "0") || 0;
+  const mode = typeof body?.mode === "string" ? body.mode.trim().toLowerCase() : "quick";
   let specialty = typeof body?.specialty === "string" ? body.specialty.trim() : "";
 
   if (!prompt) return badRequest("prompt is required");
@@ -766,8 +780,12 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     return badRequest("unknown specialty", { specialty });
   }
 
+  if (!["quick", "consensus"].includes(mode)) {
+    return badRequest("mode must be quick|consensus", { mode });
+  }
+
   const promptHash = await sha256Hex(normalizePrompt(prompt));
-  const cacheKey = `cache:${promptHash}`;
+  const cacheKey = `cache:${mode}:${promptHash}`;
   const cachedRaw = await env.CACHE.get(cacheKey);
 
   if (cachedRaw) {
@@ -884,6 +902,110 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         meta: cached.provider_meta ?? null
       });
     }
+  }
+
+  if (mode === "consensus") {
+    const price = 0.03;
+    if (!isOwnerRequest(request, env)) {
+      const payment = await verifyX402Payment(request, env, price, "Happy Thoughts consensus answer");
+      if (!payment.ok) return payment.response;
+    }
+
+    const started = Date.now();
+    const consensus = await runConsensus(prompt, specialty, env);
+    const consensusId = `consensus_${crypto.randomUUID()}`;
+    const disclaimer = getDomainDisclaimer(specialty);
+    const finalStructured = consensus.synthesis?.structured || {
+      agreement: [],
+      disagreements: consensus.failed_providers.map((item) => `${item.provider} failed: ${item.error}`),
+      blended_answer: consensus.answers.filter((item) => item.answer).map((item) => item.answer).join("\n\n"),
+      confidence: "low" as const,
+      raw_output: consensus.answers.filter((item) => item.answer).map((item) => item.answer).join("\n\n")
+    };
+
+    const lineageRecord = {
+      consensus_id: consensusId,
+      thought_id: consensusId,
+      mode: "consensus",
+      prompt_hash: promptHash,
+      prompt,
+      specialty,
+      created_at: new Date().toISOString(),
+      buyer_wallet: buyerWallet,
+      price_paid: price,
+      providers: consensus.answers,
+      synthesis: consensus.synthesis,
+      degraded: consensus.degraded,
+      failure_count: consensus.failure_count,
+      failed_providers: consensus.failed_providers,
+      final_answer: finalStructured.blended_answer,
+      confidence: finalStructured.confidence,
+      disclaimer
+    };
+
+    await env.THOUGHTS.put(`consensus:${consensusId}`, JSON.stringify(lineageRecord));
+    await env.CACHE.put(
+      cacheKey,
+      JSON.stringify({
+        thought_id: consensusId,
+        response: finalStructured.blended_answer,
+        provider_id: "consensus_panel",
+        provider_wallet: null,
+        provider_score: null,
+        specialty,
+        price_paid: price,
+        confidence: finalStructured.confidence,
+        provider_meta: {
+          mode: "consensus",
+          structured: finalStructured,
+          degraded: consensus.degraded,
+          failure_count: consensus.failure_count,
+          failed_providers: consensus.failed_providers,
+          providers: consensus.answers,
+          synthesis: consensus.synthesis
+        },
+        created_at: lineageRecord.created_at
+      })
+    );
+
+    if (minConfidence > 0) {
+      const confidenceRank = { low: 0.33, medium: 0.66, high: 0.95 }[finalStructured.confidence] || 0;
+      if (confidenceRank < minConfidence) {
+        return jsonResponse(
+          {
+            error: "confidence_below_minimum",
+            message: "Consensus answer completed but confidence fell below requested minimum.",
+            confidence: finalStructured.confidence,
+            structured: finalStructured,
+            failed_providers: consensus.failed_providers,
+            degraded: consensus.degraded
+          },
+          409
+        );
+      }
+    }
+
+    return ok({
+      thought_id: consensusId,
+      mode: "consensus",
+      thought: finalStructured.blended_answer,
+      specialty,
+      price_paid: price,
+      cached: false,
+      confidence: finalStructured.confidence,
+      response_time_ms: Date.now() - started,
+      parent_thought_id: null,
+      disclaimer,
+      meta: {
+        structured: finalStructured,
+        degraded: consensus.degraded,
+        failure_count: consensus.failure_count,
+        failed_providers: consensus.failed_providers,
+        providers: consensus.answers,
+        synthesis_model: consensus.synthesis?.model || null,
+        synthesis_provider: consensus.synthesis?.provider || null
+      }
+    });
   }
 
   const candidates: any[] = [];

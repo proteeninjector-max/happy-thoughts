@@ -1883,6 +1883,8 @@ describe("HappyThoughts internal consensus", () => {
       expect(json.structured.agreement).toEqual(["Shared point one", "Shared point two"]);
       expect(json.structured.disagreements).toEqual(["Caveat one"]);
       expect(json.structured.confidence).toBe("high");
+      expect(json.degraded).toBe(false);
+      expect(json.failure_count).toBe(0);
       expect(json.consensus_id).toMatch(/^consensus_/);
 
       const storedRaw = await env.THOUGHTS.get(`consensus:${json.consensus_id}`);
@@ -1890,6 +1892,86 @@ describe("HappyThoughts internal consensus", () => {
       const stored: any = JSON.parse(storedRaw as string);
       expect(stored.final_answer).toBe("Blended final answer");
       expect(stored.synthesis.structured.confidence).toBe("high");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("POST /think consensus degrades cleanly when one panel model fails", async () => {
+    const env = makeEnv();
+    env.OWNER_KEY = "test-owner";
+    env.CEREBRAS_API_KEY = "cerebras-test";
+    env.MISTRAL_API_KEY = "mistral-test";
+    env.GEMMA_AI_API_KEY = "google-test";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.cerebras.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Cerebras answer" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("api.mistral.ai")) {
+        return new Response(JSON.stringify({ error: "boom" }), {
+          status: 500,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("models/gemma-4-31b-it:generateContent")) {
+        return new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: "Gemma answer" }] } }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.includes("models/gemini-2.5-flash:generateContent")) {
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: [
+              "Agreement:",
+              "- Shared point one",
+              "",
+              "Disagreements / Caveats:",
+              "- Caveat one",
+              "",
+              "Blended Answer:",
+              "Degraded blended final answer",
+              "",
+              "Confidence: high"
+            ].join("\n") }] } }]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const res = await worker.fetch(
+        new Request("https://test/think", {
+          method: "POST",
+          headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+          body: JSON.stringify({
+            prompt: "Give me a consensus answer",
+            specialty: "other/general",
+            buyer_wallet: "0xbuyer",
+            mode: "consensus"
+          })
+        }),
+        env,
+        {} as any
+      );
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.mode).toBe("consensus");
+      expect(json.confidence).toBe("medium");
+      expect(json.meta.degraded).toBe(true);
+      expect(json.meta.failure_count).toBe(1);
+      expect(json.meta.failed_providers).toHaveLength(1);
+      expect(json.meta.failed_providers[0].provider).toBe("mistral");
+      expect(json.meta.structured.confidence).toBe("medium");
     } finally {
       globalThis.fetch = originalFetch;
     }

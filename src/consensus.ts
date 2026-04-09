@@ -30,7 +30,14 @@ export type ConsensusResult = {
     output: string;
     response_time_ms: number;
     structured: StructuredSynthesis;
-  };
+  } | null;
+  degraded: boolean;
+  failure_count: number;
+  failed_providers: Array<{
+    provider: ConsensusProviderId;
+    model: string;
+    error: string;
+  }>;
 };
 
 function trimText(value: unknown): string {
@@ -202,6 +209,37 @@ async function gatherProviderAnswer(
   }
 }
 
+function computeDegradedConfidence(successfulCount: number, failureCount: number): "low" | "medium" | "high" {
+  if (successfulCount >= 3 && failureCount === 0) return "high";
+  if (successfulCount >= 2 && failureCount <= 1) return "medium";
+  return "low";
+}
+
+function buildDegradedFallback(prompt: string, specialty: string, answers: ProviderAnswer[]): StructuredSynthesis {
+  const successful = answers.filter((item) => item.ok && item.answer);
+  const failed = answers.filter((item) => !item.ok);
+  const agreement = successful.map((item) => `${item.provider} responded and was included in the blend.`);
+  const disagreements = failed.map((item) => `${item.provider} failed: ${item.error || "unknown error"}`);
+  const blended_answer = [
+    successful.length > 0
+      ? successful.map((item) => `${item.provider} (${item.model}):\n${item.answer}`).join("\n\n")
+      : "No successful provider responses were available.",
+    failed.length > 0
+      ? `\n\nConfidence note: ${failed.length} model${failed.length === 1 ? "" : "s"} failed during consensus generation, so this answer is degraded.`
+      : ""
+  ]
+    .join("")
+    .trim();
+
+  return {
+    agreement,
+    disagreements,
+    blended_answer,
+    confidence: computeDegradedConfidence(successful.length, failed.length),
+    raw_output: blended_answer
+  };
+}
+
 export async function runConsensus(prompt: string, specialty: string, env: Env): Promise<ConsensusResult> {
   const cerebrasModel = env.CEREBRAS_MODEL || "llama3.1-8b";
   const mistralModel = env.MISTRAL_MODEL || "mistral-small-latest";
@@ -235,31 +273,102 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
   ]);
 
   const successfulAnswers = answers.filter((item) => item.ok && item.answer);
-  if (successfulAnswers.length < 2) {
-    throw new Error(
-      `Consensus panel needs at least 2 successful first responses; got ${successfulAnswers.length}`
-    );
+  const failedProviders = answers
+    .filter((item) => !item.ok)
+    .map((item) => ({
+      provider: item.provider,
+      model: item.model,
+      error: item.error || "unknown error"
+    }));
+  const failureCount = failedProviders.length;
+  const degraded = failureCount > 0;
+
+  if (successfulAnswers.length === 0) {
+    throw new Error("Consensus panel failed: no successful first responses");
+  }
+
+  if (successfulAnswers.length === 1) {
+    const structured = buildDegradedFallback(prompt, specialty, answers);
+    return {
+      prompt,
+      specialty,
+      answers,
+      synthesis: null,
+      degraded: true,
+      failure_count: failureCount,
+      failed_providers: failedProviders
+    };
   }
 
   if (!env.GEMMA_AI_API_KEY) {
-    throw new Error("GEMMA_AI_API_KEY not configured for synthesis");
+    const structured = buildDegradedFallback(prompt, specialty, answers);
+    return {
+      prompt,
+      specialty,
+      answers,
+      synthesis: {
+        provider: "google_gemini",
+        model: synthesisModel,
+        output: structured.raw_output,
+        response_time_ms: 0,
+        structured
+      },
+      degraded: true,
+      failure_count: failureCount,
+      failed_providers: [
+        ...failedProviders,
+        { provider: "google_gemma", model: synthesisModel, error: "GEMMA_AI_API_KEY not configured for synthesis" }
+      ]
+    };
   }
 
-  const synthesisPrompt = buildSynthesisPrompt(prompt, specialty, successfulAnswers);
-  const synthesisStarted = Date.now();
-  const output = await callGoogleGenerate(env.GEMMA_AI_API_KEY, synthesisModel, synthesisPrompt);
-  const structured = parseSynthesisOutput(output);
-
-  return {
-    prompt,
-    specialty,
-    answers,
-    synthesis: {
-      provider: "google_gemini",
-      model: synthesisModel,
-      output,
-      response_time_ms: Date.now() - synthesisStarted,
-      structured
+  try {
+    const synthesisPrompt = buildSynthesisPrompt(prompt, specialty, successfulAnswers);
+    const synthesisStarted = Date.now();
+    const output = await callGoogleGenerate(env.GEMMA_AI_API_KEY, synthesisModel, synthesisPrompt);
+    const structured = parseSynthesisOutput(output);
+    if (degraded) {
+      structured.confidence = computeDegradedConfidence(successfulAnswers.length, failureCount);
+      structured.disagreements = [
+        ...structured.disagreements,
+        ...failedProviders.map((item) => `${item.provider} failed during panel generation: ${item.error}`)
+      ];
     }
-  };
+
+    return {
+      prompt,
+      specialty,
+      answers,
+      synthesis: {
+        provider: "google_gemini",
+        model: synthesisModel,
+        output,
+        response_time_ms: Date.now() - synthesisStarted,
+        structured
+      },
+      degraded,
+      failure_count: failureCount,
+      failed_providers: failedProviders
+    };
+  } catch (err: any) {
+    const structured = buildDegradedFallback(prompt, specialty, answers);
+    return {
+      prompt,
+      specialty,
+      answers,
+      synthesis: {
+        provider: "google_gemini",
+        model: synthesisModel,
+        output: structured.raw_output,
+        response_time_ms: 0,
+        structured
+      },
+      degraded: true,
+      failure_count: failureCount + 1,
+      failed_providers: [
+        ...failedProviders,
+        { provider: "google_gemma", model: synthesisModel, error: err?.message || String(err) }
+      ]
+    };
+  }
 }
