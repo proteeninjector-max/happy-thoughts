@@ -887,9 +887,11 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         await saveScore(updatedScore, env);
       }
 
+      const cachedMode = cached.provider_meta?.mode || "quick";
       return ok({
-        thought_id: thoughtId,
-        answer_mode: cached.provider_meta?.mode || "quick",
+        thought_id: cachedMode === "consensus" ? (cached.thought_id || thoughtId) : thoughtId,
+        answer_mode: cachedMode,
+        mode: cachedMode,
         thought: cached.response,
         provider_id: cached.provider_id,
         provider_score: cached.provider_score ?? null,
@@ -932,6 +934,11 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       confidence: "low" as const,
       raw_output: consensus.answers.filter((item) => item.answer).map((item) => item.answer).join("\n\n")
     };
+    const confidenceReason = consensus.degraded
+      ? `${consensus.failure_count} panel model${consensus.failure_count === 1 ? "" : "s"} failed, so confidence was reduced.`
+      : consensus.synthesis
+        ? "All panel models and synthesis completed successfully."
+        : "Panel completed without synthesis; confidence reflects fallback mode.";
 
     const lineageRecord = {
       consensus_id: consensusId,
@@ -1004,9 +1011,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       price_paid: price,
       cached: false,
       confidence: finalStructured.confidence,
-      confidence_reason: consensus.degraded
-        ? `${consensus.failure_count} panel model${consensus.failure_count === 1 ? "" : "s"} failed, so confidence was reduced.`
-        : "All panel models completed successfully.",
+      confidence_reason: confidenceReason,
       response_time_ms: Date.now() - started,
       parent_thought_id: null,
       disclaimer,

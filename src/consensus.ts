@@ -69,14 +69,19 @@ function buildSynthesisPrompt(prompt: string, specialty: string, answers: Provid
     "You will receive a user prompt and three first-pass model answers.",
     "Your job:",
     "1. Identify the strongest points of agreement.",
-    "2. Identify important disagreements or unsupported claims.",
+    "2. Identify important disagreements, weak claims, or unsupported leaps.",
     "3. Produce one final blended answer that is clear, useful, and honest about uncertainty.",
     "4. Prefer precision over confidence theater.",
+    "5. The blended answer must be a complete standalone response, not a fragment.",
     "Do not mention chain-of-thought.",
+    "Do not output only one short bullet. Complete every section.",
     "Use this exact output structure:",
-    "Agreement:\n- ...",
-    "Disagreements / Caveats:\n- ...",
-    "Blended Answer:\n...",
+    "Agreement:",
+    "- at least 1 bullet",
+    "Disagreements / Caveats:",
+    "- at least 1 bullet (use 'None material.' if there are no important disagreements)",
+    "Blended Answer:",
+    "Write 1-3 full paragraphs that directly answer the user.",
     "Confidence: low|medium|high",
     `Specialty: ${specialty}`,
     `User prompt: ${prompt}`,
@@ -113,6 +118,14 @@ export function parseSynthesisOutput(output: string): StructuredSynthesis {
     confidence,
     raw_output: normalized
   };
+}
+
+function isStructuredSynthesisUsable(structured: StructuredSynthesis): boolean {
+  if (structured.agreement.length === 0) return false;
+  if (!structured.blended_answer) return false;
+  if (/^Agreement:/i.test(structured.blended_answer)) return false;
+  if (structured.blended_answer.length < 160) return false;
+  return true;
 }
 
 async function callOpenAICompatible(
@@ -210,26 +223,50 @@ async function gatherProviderAnswer(
 }
 
 function computeDegradedConfidence(successfulCount: number, failureCount: number): "low" | "medium" | "high" {
-  if (successfulCount >= 3 && failureCount === 0) return "high";
-  if (successfulCount >= 2 && failureCount <= 1) return "medium";
+  if (failureCount === 0 && successfulCount >= 3) return "high";
+  if (failureCount === 1 && successfulCount >= 2) return "medium";
   return "low";
+}
+
+function normalizeStructuredConfidence(
+  structured: StructuredSynthesis,
+  successfulCount: number,
+  failureCount: number,
+  synthFailed: boolean
+): StructuredSynthesis {
+  const maxConfidence = synthFailed
+    ? computeDegradedConfidence(successfulCount, Math.max(1, failureCount))
+    : computeDegradedConfidence(successfulCount, failureCount);
+  const rank = { low: 0, medium: 1, high: 2 } as const;
+  const chosen = rank[structured.confidence] > rank[maxConfidence] ? maxConfidence : structured.confidence;
+  return { ...structured, confidence: chosen };
 }
 
 function buildDegradedFallback(prompt: string, specialty: string, answers: ProviderAnswer[]): StructuredSynthesis {
   const successful = answers.filter((item) => item.ok && item.answer);
   const failed = answers.filter((item) => !item.ok);
-  const agreement = successful.map((item) => `${item.provider} responded and was included in the blend.`);
-  const disagreements = failed.map((item) => `${item.provider} failed: ${item.error || "unknown error"}`);
+  const agreement = successful.map((item) => `${item.provider} contributed usable signal.`);
+  const disagreements = failed.length
+    ? failed.map((item) => `${item.provider} failed: ${item.error || "unknown error"}`)
+    : ["None material."];
+
+  const successfulSummary = successful
+    .map((item) => {
+      const condensed = (item.answer || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 320);
+      return `- ${item.provider}: ${condensed}${condensed.length >= 320 ? "…" : ""}`;
+    })
+    .join("\n");
+
   const blended_answer = [
+    `The consensus answer is running in degraded mode for specialty ${specialty} because ${failed.length} panel model${failed.length === 1 ? "" : "s"} failed during execution.`,
     successful.length > 0
-      ? successful.map((item) => `${item.provider} (${item.model}):\n${item.answer}`).join("\n\n")
+      ? `Usable surviving model signal:\n${successfulSummary}`
       : "No successful provider responses were available.",
-    failed.length > 0
-      ? `\n\nConfidence note: ${failed.length} model${failed.length === 1 ? "" : "s"} failed during consensus generation, so this answer is degraded.`
-      : ""
-  ]
-    .join("")
-    .trim();
+    "Treat this result as lower-confidence than a full consensus run."
+  ].join("\n\n");
 
   return {
     agreement,
@@ -326,9 +363,12 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
     const synthesisPrompt = buildSynthesisPrompt(prompt, specialty, successfulAnswers);
     const synthesisStarted = Date.now();
     const output = await callGoogleGenerate(env.GEMMA_AI_API_KEY, synthesisModel, synthesisPrompt);
-    const structured = parseSynthesisOutput(output);
+    let structured = parseSynthesisOutput(output);
+    if (!isStructuredSynthesisUsable(structured)) {
+      throw new Error("synthesis output incomplete or malformed");
+    }
+    structured = normalizeStructuredConfidence(structured, successfulAnswers.length, failureCount, false);
     if (degraded) {
-      structured.confidence = computeDegradedConfidence(successfulAnswers.length, failureCount);
       structured.disagreements = [
         ...structured.disagreements,
         ...failedProviders.map((item) => `${item.provider} failed during panel generation: ${item.error}`)
@@ -351,7 +391,8 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
       failed_providers: failedProviders
     };
   } catch (err: any) {
-    const structured = buildDegradedFallback(prompt, specialty, answers);
+    let structured = buildDegradedFallback(prompt, specialty, answers);
+    structured = normalizeStructuredConfidence(structured, successfulAnswers.length, failureCount + 1, true);
     return {
       prompt,
       specialty,

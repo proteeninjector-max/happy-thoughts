@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import worker from "../src/index";
 import { updateScore, type ScoreRecord } from "../src/scoring";
 import { runDecay } from "../src/decay";
-import { parseSynthesisOutput } from "../src/consensus";
+import { parseSynthesisOutput, runConsensus } from "../src/consensus";
 
 class MockKV implements KVNamespace {
   private store = new Map<string, string>();
@@ -1845,7 +1845,8 @@ describe("HappyThoughts internal consensus", () => {
               "- Caveat one",
               "",
               "Blended Answer:",
-              "Blended final answer",
+              "Blended final answer paragraph one with enough detail to count as a real synthesis response.",
+              "Blended final answer paragraph two adds practical direction and completes the answer cleanly.",
               "",
               "Confidence: high"
             ].join("\n") }] } }]
@@ -1879,7 +1880,7 @@ describe("HappyThoughts internal consensus", () => {
         "mistral",
         "google_gemma"
       ]);
-      expect(json.final_answer).toBe("Blended final answer");
+      expect(json.final_answer).toContain("Blended final answer paragraph one");
       expect(json.structured.agreement).toEqual(["Shared point one", "Shared point two"]);
       expect(json.structured.disagreements).toEqual(["Caveat one"]);
       expect(json.structured.confidence).toBe("high");
@@ -1890,8 +1891,100 @@ describe("HappyThoughts internal consensus", () => {
       const storedRaw = await env.THOUGHTS.get(`consensus:${json.consensus_id}`);
       expect(storedRaw).toBeTruthy();
       const stored: any = JSON.parse(storedRaw as string);
-      expect(stored.final_answer).toBe("Blended final answer");
+      expect(stored.final_answer).toContain("Blended final answer paragraph one");
       expect(stored.synthesis.structured.confidence).toBe("high");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("runConsensus rejects malformed synthesis and falls back cleanly", async () => {
+    const env = makeEnv();
+    env.CEREBRAS_API_KEY = "cerebras-test";
+    env.MISTRAL_API_KEY = "mistral-test";
+    env.GEMMA_AI_API_KEY = "google-test";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.cerebras.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Cerebras answer" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("api.mistral.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Mistral answer" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("models/gemma-4-31b-it:generateContent")) {
+        return new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: "Gemma answer" }] } }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.includes("models/gemini-2.5-flash:generateContent")) {
+        return new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: "Agreement:\n- tiny fragment" }] } }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const result = await runConsensus("test prompt", "other/general", env);
+      expect(result.degraded).toBe(true);
+      expect(result.synthesis?.structured.confidence).toBe("medium");
+      expect(result.synthesis?.structured.blended_answer).toMatch(/degraded mode/i);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("runConsensus caps confidence when synthesis fails", async () => {
+    const env = makeEnv();
+    env.CEREBRAS_API_KEY = "cerebras-test";
+    env.MISTRAL_API_KEY = "mistral-test";
+    env.GEMMA_AI_API_KEY = "google-test";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.cerebras.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Cerebras answer" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("api.mistral.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Mistral answer" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("models/gemma-4-31b-it:generateContent")) {
+        return new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: "Gemma answer" }] } }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.includes("models/gemini-2.5-flash:generateContent")) {
+        return new Response(JSON.stringify({ error: { message: "busy" } }), {
+          status: 503,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const result = await runConsensus("test prompt", "other/general", env);
+      expect(result.degraded).toBe(true);
+      expect(result.synthesis?.structured.confidence).toBe("medium");
+      expect(result.failed_providers.some((item) => item.model === "gemini-2.5-flash")).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1936,7 +2029,8 @@ describe("HappyThoughts internal consensus", () => {
               "- Caveat one",
               "",
               "Blended Answer:",
-              "Degraded blended final answer",
+              "Degraded blended final answer paragraph one with enough length to satisfy synthesis validation.",
+              "Degraded blended final answer paragraph two keeps the answer usable while one panel model is missing.",
               "",
               "Confidence: high"
             ].join("\n") }] } }]
