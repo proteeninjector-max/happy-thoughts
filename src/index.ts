@@ -617,6 +617,8 @@ async function handleInternalConsensus(request: Request, env: Env): Promise<Resp
       prompt,
       specialty,
       providers: result.answers,
+      parsed_answers: result.parsed_answers,
+      normalized: result.normalized,
       synthesis: result.synthesis,
       degraded: result.degraded,
       failure_count: result.failure_count,
@@ -951,6 +953,8 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       buyer_wallet: buyerWallet,
       price_paid: price,
       providers: consensus.answers,
+      parsed_answers: consensus.parsed_answers,
+      normalized: consensus.normalized,
       synthesis: consensus.synthesis,
       degraded: consensus.degraded,
       failure_count: consensus.failure_count,
@@ -979,6 +983,8 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
           failure_count: consensus.failure_count,
           failed_providers: consensus.failed_providers,
           providers: consensus.answers,
+          parsed_answers: consensus.parsed_answers,
+          normalized: consensus.normalized,
           synthesis: consensus.synthesis
         },
         created_at: lineageRecord.created_at

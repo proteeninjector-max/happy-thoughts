@@ -1815,20 +1815,62 @@ describe("HappyThoughts internal consensus", () => {
       const url = typeof input === "string" ? input : input.url;
       if (url.includes("api.cerebras.ai")) {
         return new Response(
-          JSON.stringify({ choices: [{ message: { content: "Cerebras answer" } }] }),
+          JSON.stringify({ choices: [{ message: { content: [
+            "Thesis:",
+            "Validate by measuring willingness to pay, not just stated interest.",
+            "",
+            "Key Points:",
+            "- Run a fake door or paid verification test",
+            "- Measure conversion from cheap answer to consensus answer",
+            "- Focus on prompts where accuracy has visible value",
+            "",
+            "Caveats:",
+            "- None material.",
+            "",
+            "Bottom Line:",
+            "Use a lightweight payment or upsell test before overbuilding the product."
+          ].join("\n") } }] }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
       }
       if (url.includes("api.mistral.ai")) {
         return new Response(
-          JSON.stringify({ choices: [{ message: { content: "Mistral answer" } }] }),
+          JSON.stringify({ choices: [{ message: { content: [
+            "Thesis:",
+            "The cleanest validation is a real paid upgrade path from cheap to consensus.",
+            "",
+            "Key Points:",
+            "- Run a fake door or paid verification test",
+            "- Measure conversion from cheap answer to consensus answer",
+            "- Use a simple upgrade prompt instead of a survey",
+            "",
+            "Caveats:",
+            "- None material.",
+            "",
+            "Bottom Line:",
+            "Charge for verification early and watch who actually converts."
+          ].join("\n") } }] }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
       }
       if (url.includes("models/gemma-4-31b-it:generateContent")) {
         return new Response(
           JSON.stringify({
-            candidates: [{ content: { parts: [{ text: "Gemma answer" }] } }]
+            candidates: [{ content: { parts: [{ text: [
+              "Thesis:",
+              "Consensus only matters if it reduces the cost of being wrong.",
+              "",
+              "Key Points:",
+              "- Run a fake door or paid verification test",
+              "- Measure conversion from cheap answer to consensus answer",
+              "- Target high-cost-of-error use cases first",
+              "",
+              "Caveats:",
+              "- General consumer prompts may not justify a premium",
+              "",
+              "Bottom Line:",
+              "Validate payment around costly mistakes, not generic curiosity."
+            ].join("\n") }] } }]
           }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
@@ -1884,6 +1926,8 @@ describe("HappyThoughts internal consensus", () => {
       expect(json.structured.agreement).toEqual(["Shared point one", "Shared point two"]);
       expect(json.structured.disagreements).toEqual(["Caveat one"]);
       expect(json.structured.confidence).toBe("high");
+      expect(json.normalized.shared_points.length).toBeGreaterThan(0);
+      expect(json.normalized.shared_points[0]).toContain("Run a fake door or paid verification test");
       expect(json.degraded).toBe(false);
       expect(json.failure_count).toBe(0);
       expect(json.consensus_id).toMatch(/^consensus_/);
@@ -1905,41 +1949,49 @@ describe("HappyThoughts internal consensus", () => {
     env.GEMMA_AI_API_KEY = "google-test";
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: any) => {
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.url;
       if (url.includes("api.cerebras.ai")) {
-        return new Response(JSON.stringify({ choices: [{ message: { content: "Cerebras answer" } }] }), {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Consensus should be sold as verification.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Surface where models agree","","Caveats:","- None material.","","Bottom Line:","Use consensus as a paid verification layer."].join("\n") } }] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         });
       }
       if (url.includes("api.mistral.ai")) {
-        return new Response(
-          JSON.stringify({
-            choices: [{
-              message: {
-                content: [
-                  "Agreement:",
-                  "- Shared point one",
-                  "",
-                  "Disagreements / Caveats:",
-                  "- None material.",
-                  "",
-                  "Blended Answer:",
-                  "Fallback synthesis paragraph one is complete and readable for a human.",
-                  "Fallback synthesis paragraph two finishes the answer cleanly and keeps it useful.",
-                  "",
-                  "Confidence: medium"
-                ].join("\n")
-              }
-            }]
-          }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        );
+        const body = JSON.parse(String(init?.body || "{}"));
+        const promptText = body?.messages?.[0]?.content || "";
+        if (String(promptText).includes("final synthesis and fact-check layer")) {
+          return new Response(
+            JSON.stringify({
+              choices: [{
+                message: {
+                  content: [
+                    "Agreement:",
+                    "- Shared point one",
+                    "",
+                    "Disagreements / Caveats:",
+                    "- None material.",
+                    "",
+                    "Blended Answer:",
+                    "Fallback synthesis paragraph one is complete and readable for a human.",
+                    "Fallback synthesis paragraph two finishes the answer cleanly and keeps it useful.",
+                    "",
+                    "Confidence: medium"
+                  ].join("\n")
+                }
+              }]
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","The best validation path is a paid upgrade from cheap to consensus.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Test willingness to pay with a simple upgrade flow","","Caveats:","- None material.","","Bottom Line:","Ask users to pay for verification before building too much."].join("\n") } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
       }
       if (url.includes("models/gemma-4-31b-it:generateContent")) {
         return new Response(
-          JSON.stringify({ candidates: [{ content: { parts: [{ text: "Gemma answer" }] } }] }),
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: ["Thesis:","Consensus matters when mistakes are expensive.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Focus on high-cost-of-error use cases","","Caveats:","- General prompts may not justify a premium","","Bottom Line:","Sell consensus where the downside of being wrong is visible."].join("\n") }] } }] }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
       }
@@ -1956,7 +2008,7 @@ describe("HappyThoughts internal consensus", () => {
       const result = await runConsensus("test prompt", "other/general", env);
       expect(result.degraded).toBe(true);
       expect(result.synthesis?.provider).toBe("mistral");
-      expect(result.synthesis?.structured.blended_answer).toContain("Fallback synthesis paragraph one");
+      expect(result.synthesis?.structured.blended_answer).toMatch(/best available answer right now/i);
       expect(result.synthesis?.structured.confidence).toBe("low");
       expect(result.failed_providers.some((item) => item.provider === "google_gemini")).toBe(true);
     } finally {
@@ -1974,7 +2026,7 @@ describe("HappyThoughts internal consensus", () => {
     globalThis.fetch = (async (input: any) => {
       const url = typeof input === "string" ? input : input.url;
       if (url.includes("api.cerebras.ai")) {
-        return new Response(JSON.stringify({ choices: [{ message: { content: "Cerebras answer" } }] }), {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Consensus should be sold as verification.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Surface where models agree","","Caveats:","- None material.","","Bottom Line:","Use consensus as a paid verification layer."].join("\n") } }] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         });
@@ -1987,7 +2039,7 @@ describe("HappyThoughts internal consensus", () => {
       }
       if (url.includes("models/gemma-4-31b-it:generateContent")) {
         return new Response(
-          JSON.stringify({ candidates: [{ content: { parts: [{ text: "Gemma answer" }] } }] }),
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: ["Thesis:","Consensus matters when mistakes are expensive.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Focus on high-cost-of-error use cases","","Caveats:","- General prompts may not justify a premium","","Bottom Line:","Sell consensus where the downside of being wrong is visible."].join("\n") }] } }] }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
       }
@@ -2005,7 +2057,7 @@ describe("HappyThoughts internal consensus", () => {
       expect(result.degraded).toBe(true);
       expect(result.synthesis?.provider).toBe("mistral");
       expect(result.synthesis?.structured.confidence).toBe("low");
-      expect(result.synthesis?.structured.blended_answer).toMatch(/best clean answer available/i);
+      expect(result.synthesis?.structured.blended_answer).toMatch(/best available answer right now/i);
       expect(result.failed_providers.some((item) => item.provider === "google_gemini")).toBe(true);
       expect(result.failed_providers.some((item) => item.provider === "mistral")).toBe(true);
     } finally {
@@ -2023,20 +2075,20 @@ describe("HappyThoughts internal consensus", () => {
     globalThis.fetch = (async (input: any) => {
       const url = typeof input === "string" ? input : input.url;
       if (url.includes("api.cerebras.ai")) {
-        return new Response(JSON.stringify({ choices: [{ message: { content: "Cerebras answer" } }] }), {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Consensus should be sold as verification.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Surface where models agree","","Caveats:","- None material.","","Bottom Line:","Use consensus as a paid verification layer."].join("\n") } }] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         });
       }
       if (url.includes("api.mistral.ai")) {
-        return new Response(JSON.stringify({ choices: [{ message: { content: "Mistral answer" } }] }), {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","The best validation path is a paid upgrade from cheap to consensus.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Test willingness to pay with a simple upgrade flow","","Caveats:","- None material.","","Bottom Line:","Ask users to pay for verification before building too much."].join("\n") } }] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         });
       }
       if (url.includes("models/gemma-4-31b-it:generateContent")) {
         return new Response(
-          JSON.stringify({ candidates: [{ content: { parts: [{ text: "Gemma answer" }] } }] }),
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: ["Thesis:","Consensus matters when mistakes are expensive.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Focus on high-cost-of-error use cases","","Caveats:","- General prompts may not justify a premium","","Bottom Line:","Sell consensus where the downside of being wrong is visible."].join("\n") }] } }] }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
       }
@@ -2070,7 +2122,7 @@ describe("HappyThoughts internal consensus", () => {
     globalThis.fetch = (async (input: any) => {
       const url = typeof input === "string" ? input : input.url;
       if (url.includes("api.cerebras.ai")) {
-        return new Response(JSON.stringify({ choices: [{ message: { content: "Cerebras answer" } }] }), {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Consensus should be sold as verification.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Surface where models agree","","Caveats:","- None material.","","Bottom Line:","Use consensus as a paid verification layer."].join("\n") } }] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         });
@@ -2083,7 +2135,7 @@ describe("HappyThoughts internal consensus", () => {
       }
       if (url.includes("models/gemma-4-31b-it:generateContent")) {
         return new Response(
-          JSON.stringify({ candidates: [{ content: { parts: [{ text: "Gemma answer" }] } }] }),
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: ["Thesis:","Consensus matters when mistakes are expensive.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Focus on high-cost-of-error use cases","","Caveats:","- General prompts may not justify a premium","","Bottom Line:","Sell consensus where the downside of being wrong is visible."].join("\n") }] } }] }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
       }
