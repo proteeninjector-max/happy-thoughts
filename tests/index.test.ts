@@ -1780,6 +1780,78 @@ describe("HappyThoughts provider hosted mode", () => {
   });
 });
 
+describe("HappyThoughts internal consensus", () => {
+  it("POST /internal/consensus returns panel answers plus blended output", async () => {
+    const env = makeEnv();
+    env.OWNER_KEY = "test-owner";
+    env.CEREBRAS_API_KEY = "cerebras-test";
+    env.MISTRAL_API_KEY = "mistral-test";
+    env.GEMMA_AI_API_KEY = "google-test";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.cerebras.ai")) {
+        return new Response(
+          JSON.stringify({ choices: [{ message: { content: "Cerebras answer" } }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.includes("api.mistral.ai")) {
+        return new Response(
+          JSON.stringify({ choices: [{ message: { content: "Mistral answer" } }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.includes("models/gemma-4-31b-it:generateContent")) {
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: "Gemma answer" }] } }]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.includes("models/gemini-2.5-flash:generateContent")) {
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: "Blended final answer" }] } }]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const res = await worker.fetch(
+        new Request("https://test/internal/consensus", {
+          method: "POST",
+          headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+          body: JSON.stringify({
+            prompt: "What is the best way to validate a new AI marketplace concept?",
+            specialty: "other/general"
+          })
+        }),
+        env,
+        {} as any
+      );
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.mode).toBe("consensus_v1");
+      expect(json.providers).toHaveLength(3);
+      expect(json.providers.map((p: any) => p.provider)).toEqual([
+        "cerebras",
+        "mistral",
+        "google_gemma"
+      ]);
+      expect(json.final_answer).toBe("Blended final answer");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
 describe("HappyThoughts Phase 7", () => {
   it("POST /internal/think — owner bypass", async () => {
     const env = makeEnv();

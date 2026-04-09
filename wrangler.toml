@@ -20,6 +20,15 @@ X402_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 # Secrets (set via `wrangler secret put`)
 # OWNER_KEY
 # ANTHROPIC_API_KEY
+# CEREBRAS_API_KEY
+# MISTRAL_API_KEY
+# GEMMA_AI_API_KEY
+
+# Optional vars for internal consensus routing
+# CEREBRAS_MODEL = "llama3.1-8b"
+# MISTRAL_MODEL = "mistral-small-latest"
+# GEMMA_MODEL = "gemma-4-31b-it"
+# GEMINI_SYNTHESIS_MODEL = "gemini-2.5-flash"
 
 [[kv_namespaces]]
 binding = "PROVIDERS"

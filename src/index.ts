@@ -5,6 +5,7 @@ import { LLM_TXT, LLMS_FULL_TXT, OPENAPI_JSON } from "./constants/discovery";
 import { loadScore, updateScore, saveScore } from "./scoring";
 import { runDecay } from "./decay";
 import { dispatchProvider } from "./dispatch";
+import { runConsensus } from "./consensus";
 
 const SPECIALTY_LEAVES = new Set([
   "trading/signals",
@@ -559,6 +560,50 @@ async function handleInternalThink(request: Request, env: Env): Promise<Response
   }
 
   return handleThink(request, env);
+}
+
+async function handleInternalConsensus(request: Request, env: Env): Promise<Response> {
+  if (!isOwnerRequest(request, env)) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+
+  let body: any;
+  try {
+    body = await request.clone().json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
+  const specialty = typeof body?.specialty === "string" ? body.specialty.trim() : "other/general";
+
+  if (!prompt) return badRequest("prompt is required");
+  if (!SPECIALTY_LEAVES.has(specialty)) {
+    return badRequest("unknown specialty", { specialty });
+  }
+
+  try {
+    const result = await runConsensus(prompt, specialty, env);
+    return ok({
+      mode: "consensus_v1",
+      prompt,
+      specialty,
+      providers: result.answers,
+      synthesis: result.synthesis,
+      final_answer: result.synthesis.output
+    });
+  } catch (err: any) {
+    return jsonResponse(
+      {
+        error: "consensus_failed",
+        message: err?.message || String(err)
+      },
+      502
+    );
+  }
 }
 
 async function handleShillTemplate(request: Request, env: Env): Promise<Response> {
@@ -2245,6 +2290,8 @@ export default {
         return handleCreateBundle(request, env);
       case "POST /internal/think":
         return handleInternalThink(request, env);
+      case "POST /internal/consensus":
+        return handleInternalConsensus(request, env);
       case "GET /health":
         return ok({
           status: "ok",
@@ -2292,4 +2339,11 @@ export interface Env {
   ANTHROPIC_BENCHMARK_MODEL?: string;
   SIGNAL_ENDPOINT_BASE?: string;
   MOBY_ENDPOINT_BASE?: string;
+  CEREBRAS_API_KEY?: string;
+  CEREBRAS_MODEL?: string;
+  MISTRAL_API_KEY?: string;
+  MISTRAL_MODEL?: string;
+  GEMMA_AI_API_KEY?: string;
+  GEMMA_MODEL?: string;
+  GEMINI_SYNTHESIS_MODEL?: string;
 }
