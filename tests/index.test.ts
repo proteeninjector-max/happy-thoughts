@@ -1898,6 +1898,72 @@ describe("HappyThoughts internal consensus", () => {
     }
   });
 
+  it("runConsensus uses mistral as fallback synthesizer when google synthesis fails", async () => {
+    const env = makeEnv();
+    env.CEREBRAS_API_KEY = "cerebras-test";
+    env.MISTRAL_API_KEY = "mistral-test";
+    env.GEMMA_AI_API_KEY = "google-test";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.cerebras.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Cerebras answer" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("api.mistral.ai")) {
+        return new Response(
+          JSON.stringify({
+            choices: [{
+              message: {
+                content: [
+                  "Agreement:",
+                  "- Shared point one",
+                  "",
+                  "Disagreements / Caveats:",
+                  "- None material.",
+                  "",
+                  "Blended Answer:",
+                  "Fallback synthesis paragraph one is complete and readable for a human.",
+                  "Fallback synthesis paragraph two finishes the answer cleanly and keeps it useful.",
+                  "",
+                  "Confidence: medium"
+                ].join("\n")
+              }
+            }]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.includes("models/gemma-4-31b-it:generateContent")) {
+        return new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: "Gemma answer" }] } }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.includes("models/gemini-2.5-flash:generateContent")) {
+        return new Response(JSON.stringify({ error: { message: "busy" } }), {
+          status: 503,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const result = await runConsensus("test prompt", "other/general", env);
+      expect(result.degraded).toBe(true);
+      expect(result.synthesis?.provider).toBe("mistral");
+      expect(result.synthesis?.structured.blended_answer).toContain("Fallback synthesis paragraph one");
+      expect(result.synthesis?.structured.confidence).toBe("low");
+      expect(result.failed_providers.some((item) => item.provider === "google_gemini")).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("runConsensus rejects malformed synthesis and falls back cleanly", async () => {
     const env = makeEnv();
     env.CEREBRAS_API_KEY = "cerebras-test";
@@ -1914,8 +1980,8 @@ describe("HappyThoughts internal consensus", () => {
         });
       }
       if (url.includes("api.mistral.ai")) {
-        return new Response(JSON.stringify({ choices: [{ message: { content: "Mistral answer" } }] }), {
-          status: 200,
+        return new Response(JSON.stringify({ error: "fallback failed too" }), {
+          status: 500,
           headers: { "content-type": "application/json" }
         });
       }
@@ -1937,8 +2003,11 @@ describe("HappyThoughts internal consensus", () => {
     try {
       const result = await runConsensus("test prompt", "other/general", env);
       expect(result.degraded).toBe(true);
-      expect(result.synthesis?.structured.confidence).toBe("medium");
-      expect(result.synthesis?.structured.blended_answer).toMatch(/degraded mode/i);
+      expect(result.synthesis?.provider).toBe("mistral");
+      expect(result.synthesis?.structured.confidence).toBe("low");
+      expect(result.synthesis?.structured.blended_answer).toMatch(/best clean answer available/i);
+      expect(result.failed_providers.some((item) => item.provider === "google_gemini")).toBe(true);
+      expect(result.failed_providers.some((item) => item.provider === "mistral")).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1983,7 +2052,7 @@ describe("HappyThoughts internal consensus", () => {
     try {
       const result = await runConsensus("test prompt", "other/general", env);
       expect(result.degraded).toBe(true);
-      expect(result.synthesis?.structured.confidence).toBe("medium");
+      expect(result.synthesis?.structured.confidence).toBe("low");
       expect(result.failed_providers.some((item) => item.model === "gemini-2.5-flash")).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;

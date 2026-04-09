@@ -1,7 +1,7 @@
 import type { Env } from "./index";
 
 type ConsensusProviderId = "cerebras" | "mistral" | "google_gemma";
-type SynthesisProviderId = "google_gemini";
+type SynthesisProviderId = "google_gemini" | "mistral";
 
 export type ProviderAnswer = {
   provider: ConsensusProviderId;
@@ -34,7 +34,7 @@ export type ConsensusResult = {
   degraded: boolean;
   failure_count: number;
   failed_providers: Array<{
-    provider: ConsensusProviderId;
+    provider: string;
     model: string;
     error: string;
   }>;
@@ -66,22 +66,24 @@ function buildSynthesisPrompt(prompt: string, specialty: string, answers: Provid
 
   return [
     "You are the final synthesis and fact-check layer for Happy Thoughts.",
-    "You will receive a user prompt and three first-pass model answers.",
+    "Real humans will read this answer. It must sound clean, helpful, and deliberate.",
+    "You will receive a user prompt and multiple first-pass model answers.",
     "Your job:",
     "1. Identify the strongest points of agreement.",
-    "2. Identify important disagreements, weak claims, or unsupported leaps.",
+    "2. Identify meaningful disagreements, weak claims, or unsupported leaps.",
     "3. Produce one final blended answer that is clear, useful, and honest about uncertainty.",
     "4. Prefer precision over confidence theater.",
     "5. The blended answer must be a complete standalone response, not a fragment.",
     "Do not mention chain-of-thought.",
-    "Do not output only one short bullet. Complete every section.",
+    "Do not sound robotic or like debug output.",
+    "Complete every section.",
     "Use this exact output structure:",
     "Agreement:",
     "- at least 1 bullet",
     "Disagreements / Caveats:",
     "- at least 1 bullet (use 'None material.' if there are no important disagreements)",
     "Blended Answer:",
-    "Write 1-3 full paragraphs that directly answer the user.",
+    "Write 1-3 full paragraphs that directly answer the user in natural language.",
     "Confidence: low|medium|high",
     `Specialty: ${specialty}`,
     `User prompt: ${prompt}`,
@@ -133,19 +135,18 @@ async function callOpenAICompatible(
   apiKey: string,
   model: string,
   prompt: string,
-  extraHeaders?: Record<string, string>
+  maxTokens = 700
 ): Promise<string> {
   const resp = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-      ...(extraHeaders || {})
+      authorization: `Bearer ${apiKey}`
     },
     body: JSON.stringify({
       model,
       temperature: 0.2,
-      max_tokens: 700,
+      max_tokens: maxTokens,
       messages: [{ role: "user", content: prompt }]
     })
   });
@@ -161,7 +162,7 @@ async function callOpenAICompatible(
   return answer;
 }
 
-async function callGoogleGenerate(apiKey: string, model: string, prompt: string): Promise<string> {
+async function callGoogleGenerate(apiKey: string, model: string, prompt: string, maxOutputTokens = 900): Promise<string> {
   const resp = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
@@ -171,7 +172,7 @@ async function callGoogleGenerate(apiKey: string, model: string, prompt: string)
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.2,
-          maxOutputTokens: 900
+          maxOutputTokens
         }
       })
     }
@@ -242,38 +243,107 @@ function normalizeStructuredConfidence(
   return { ...structured, confidence: chosen };
 }
 
-function buildDegradedFallback(prompt: string, specialty: string, answers: ProviderAnswer[]): StructuredSynthesis {
+function cleanSentence(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function buildHumanFallback(prompt: string, specialty: string, answers: ProviderAnswer[], synthFailures: Array<{ provider: string; model: string; error: string }>): StructuredSynthesis {
   const successful = answers.filter((item) => item.ok && item.answer);
-  const failed = answers.filter((item) => !item.ok);
-  const agreement = successful.map((item) => `${item.provider} contributed usable signal.`);
-  const disagreements = failed.length
-    ? failed.map((item) => `${item.provider} failed: ${item.error || "unknown error"}`)
+  const failureCount = synthFailures.length;
+
+  const agreement = successful.length
+    ? successful.map((item) => `${item.provider} produced a usable first-pass answer.`)
+    : ["No usable provider answers were available."];
+
+  const disagreements = synthFailures.length
+    ? synthFailures.map((item) => `${item.provider} synthesis step failed: ${item.error}`)
     : ["None material."];
 
-  const successfulSummary = successful
+  const summaryBullets = successful
     .map((item) => {
-      const condensed = (item.answer || "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 320);
-      return `- ${item.provider}: ${condensed}${condensed.length >= 320 ? "…" : ""}`;
+      const condensed = cleanSentence(item.answer || "").slice(0, 220);
+      return `- ${condensed}${condensed.length >= 220 ? "…" : ""}`;
     })
     .join("\n");
 
   const blended_answer = [
-    `The consensus answer is running in degraded mode for specialty ${specialty} because ${failed.length} panel model${failed.length === 1 ? "" : "s"} failed during execution.`,
+    `Here’s the best clean answer available right now for this ${specialty} question.`,
     successful.length > 0
-      ? `Usable surviving model signal:\n${successfulSummary}`
-      : "No successful provider responses were available.",
-    "Treat this result as lower-confidence than a full consensus run."
+      ? `The panel produced usable first-pass responses, but the final synthesis layer did not complete cleanly. The strongest surviving points were:\n${summaryBullets}`
+      : "The panel did not return any usable first-pass responses.",
+    failureCount > 0
+      ? "Because the final blend step failed, this answer should be read as a lower-confidence fallback rather than a polished final consensus."
+      : "This answer is a fallback summary rather than a full synthesized consensus."
   ].join("\n\n");
 
   return {
     agreement,
     disagreements,
     blended_answer,
-    confidence: computeDegradedConfidence(successful.length, failed.length),
+    confidence: computeDegradedConfidence(successful.length, Math.max(1, failureCount)),
     raw_output: blended_answer
+  };
+}
+
+async function tryGoogleSynthesis(
+  prompt: string,
+  specialty: string,
+  successfulAnswers: ProviderAnswer[],
+  env: Env,
+  synthesisModel: string,
+  failureCount: number
+) {
+  if (!env.GEMMA_AI_API_KEY) {
+    throw new Error("GEMMA_AI_API_KEY not configured for synthesis");
+  }
+  const synthesisPrompt = buildSynthesisPrompt(prompt, specialty, successfulAnswers);
+  const started = Date.now();
+  const output = await callGoogleGenerate(env.GEMMA_AI_API_KEY, synthesisModel, synthesisPrompt, 1200);
+  let structured = parseSynthesisOutput(output);
+  if (!isStructuredSynthesisUsable(structured)) {
+    throw new Error("synthesis output incomplete or malformed");
+  }
+  structured = normalizeStructuredConfidence(structured, successfulAnswers.length, failureCount, false);
+  return {
+    provider: "google_gemini" as const,
+    model: synthesisModel,
+    output,
+    response_time_ms: Date.now() - started,
+    structured
+  };
+}
+
+async function tryMistralSynthesis(
+  prompt: string,
+  specialty: string,
+  successfulAnswers: ProviderAnswer[],
+  env: Env,
+  synthesisModel: string,
+  failureCount: number
+) {
+  if (!env.MISTRAL_API_KEY) {
+    throw new Error("MISTRAL_API_KEY not configured for fallback synthesis");
+  }
+  const synthesisPrompt = buildSynthesisPrompt(prompt, specialty, successfulAnswers);
+  const started = Date.now();
+  const output = await callOpenAICompatible(
+    "https://api.mistral.ai/v1/chat/completions",
+    env.MISTRAL_API_KEY,
+    synthesisModel,
+    synthesisPrompt,
+    1000
+  );
+  let structured = parseSynthesisOutput(output);
+  if (!isStructuredSynthesisUsable(structured)) {
+    throw new Error("fallback synthesis output incomplete or malformed");
+  }
+  structured = normalizeStructuredConfidence(structured, successfulAnswers.length, failureCount, false);
+  return {
+    provider: "mistral" as const,
+    model: synthesisModel,
+    output,
+    response_time_ms: Date.now() - started,
+    structured
   };
 }
 
@@ -281,135 +351,99 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
   const cerebrasModel = env.CEREBRAS_MODEL || "llama3.1-8b";
   const mistralModel = env.MISTRAL_MODEL || "mistral-small-latest";
   const gemmaModel = env.GEMMA_MODEL || "gemma-4-31b-it";
-  const synthesisModel = env.GEMINI_SYNTHESIS_MODEL || "gemini-2.5-flash";
+  const googleSynthesisModel = env.GEMINI_SYNTHESIS_MODEL || "gemini-2.5-flash";
+  const mistralSynthesisModel = env.MISTRAL_SYNTHESIS_MODEL || mistralModel;
   const answerPrompt = buildAnswerPrompt(prompt, specialty);
 
   const answers = await Promise.all([
     gatherProviderAnswer("cerebras", cerebrasModel, async () => {
       if (!env.CEREBRAS_API_KEY) throw new Error("CEREBRAS_API_KEY not configured");
-      return callOpenAICompatible(
-        "https://api.cerebras.ai/v1/chat/completions",
-        env.CEREBRAS_API_KEY,
-        cerebrasModel,
-        answerPrompt
-      );
+      return callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", env.CEREBRAS_API_KEY, cerebrasModel, answerPrompt);
     }),
     gatherProviderAnswer("mistral", mistralModel, async () => {
       if (!env.MISTRAL_API_KEY) throw new Error("MISTRAL_API_KEY not configured");
-      return callOpenAICompatible(
-        "https://api.mistral.ai/v1/chat/completions",
-        env.MISTRAL_API_KEY,
-        mistralModel,
-        answerPrompt
-      );
+      return callOpenAICompatible("https://api.mistral.ai/v1/chat/completions", env.MISTRAL_API_KEY, mistralModel, answerPrompt);
     }),
     gatherProviderAnswer("google_gemma", gemmaModel, async () => {
       if (!env.GEMMA_AI_API_KEY) throw new Error("GEMMA_AI_API_KEY not configured");
-      return callGoogleGenerate(env.GEMMA_AI_API_KEY, gemmaModel, answerPrompt);
+      return callGoogleGenerate(env.GEMMA_AI_API_KEY, gemmaModel, answerPrompt, 1000);
     })
   ]);
 
   const successfulAnswers = answers.filter((item) => item.ok && item.answer);
   const failedProviders = answers
     .filter((item) => !item.ok)
-    .map((item) => ({
-      provider: item.provider,
-      model: item.model,
-      error: item.error || "unknown error"
-    }));
-  const failureCount = failedProviders.length;
-  const degraded = failureCount > 0;
+    .map((item) => ({ provider: item.provider, model: item.model, error: item.error || "unknown error" }));
 
   if (successfulAnswers.length === 0) {
     throw new Error("Consensus panel failed: no successful first responses");
   }
 
   if (successfulAnswers.length === 1) {
-    const structured = buildDegradedFallback(prompt, specialty, answers);
+    const structured = buildHumanFallback(prompt, specialty, answers, failedProviders);
     return {
       prompt,
       specialty,
       answers,
       synthesis: null,
       degraded: true,
-      failure_count: failureCount,
+      failure_count: failedProviders.length,
       failed_providers: failedProviders
     };
   }
 
-  if (!env.GEMMA_AI_API_KEY) {
-    const structured = buildDegradedFallback(prompt, specialty, answers);
+  const synthesisFailures = [...failedProviders];
+
+  try {
+    const google = await tryGoogleSynthesis(prompt, specialty, successfulAnswers, env, googleSynthesisModel, synthesisFailures.length);
     return {
       prompt,
       specialty,
       answers,
-      synthesis: {
-        provider: "google_gemini",
-        model: synthesisModel,
-        output: structured.raw_output,
-        response_time_ms: 0,
-        structured
-      },
-      degraded: true,
-      failure_count: failureCount,
-      failed_providers: [
-        ...failedProviders,
-        { provider: "google_gemma", model: synthesisModel, error: "GEMMA_AI_API_KEY not configured for synthesis" }
-      ]
+      synthesis: google,
+      degraded: synthesisFailures.length > 0,
+      failure_count: synthesisFailures.length,
+      failed_providers: synthesisFailures
     };
+  } catch (err: any) {
+    synthesisFailures.push({ provider: "google_gemini", model: googleSynthesisModel, error: err?.message || String(err) });
   }
 
   try {
-    const synthesisPrompt = buildSynthesisPrompt(prompt, specialty, successfulAnswers);
-    const synthesisStarted = Date.now();
-    const output = await callGoogleGenerate(env.GEMMA_AI_API_KEY, synthesisModel, synthesisPrompt);
-    let structured = parseSynthesisOutput(output);
-    if (!isStructuredSynthesisUsable(structured)) {
-      throw new Error("synthesis output incomplete or malformed");
-    }
-    structured = normalizeStructuredConfidence(structured, successfulAnswers.length, failureCount, false);
-    if (degraded) {
-      structured.disagreements = [
-        ...structured.disagreements,
-        ...failedProviders.map((item) => `${item.provider} failed during panel generation: ${item.error}`)
-      ];
-    }
-
+    const mistralSynth = await tryMistralSynthesis(prompt, specialty, successfulAnswers, env, mistralSynthesisModel, synthesisFailures.length);
+    mistralSynth.structured = normalizeStructuredConfidence(
+      mistralSynth.structured,
+      successfulAnswers.length,
+      synthesisFailures.length,
+      true
+    );
     return {
       prompt,
       specialty,
       answers,
-      synthesis: {
-        provider: "google_gemini",
-        model: synthesisModel,
-        output,
-        response_time_ms: Date.now() - synthesisStarted,
-        structured
-      },
-      degraded,
-      failure_count: failureCount,
-      failed_providers: failedProviders
+      synthesis: mistralSynth,
+      degraded: true,
+      failure_count: synthesisFailures.length,
+      failed_providers: synthesisFailures
     };
   } catch (err: any) {
-    let structured = buildDegradedFallback(prompt, specialty, answers);
-    structured = normalizeStructuredConfidence(structured, successfulAnswers.length, failureCount + 1, true);
-    return {
-      prompt,
-      specialty,
-      answers,
-      synthesis: {
-        provider: "google_gemini",
-        model: synthesisModel,
-        output: structured.raw_output,
-        response_time_ms: 0,
-        structured
-      },
-      degraded: true,
-      failure_count: failureCount + 1,
-      failed_providers: [
-        ...failedProviders,
-        { provider: "google_gemma", model: synthesisModel, error: err?.message || String(err) }
-      ]
-    };
+    synthesisFailures.push({ provider: "mistral", model: mistralSynthesisModel, error: err?.message || String(err) });
   }
+
+  const structured = buildHumanFallback(prompt, specialty, answers, synthesisFailures);
+  return {
+    prompt,
+    specialty,
+    answers,
+    synthesis: {
+      provider: "mistral",
+      model: mistralSynthesisModel,
+      output: structured.raw_output,
+      response_time_ms: 0,
+      structured
+    },
+    degraded: true,
+    failure_count: synthesisFailures.length,
+    failed_providers: synthesisFailures
+  };
 }

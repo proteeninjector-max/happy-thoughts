@@ -900,7 +900,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         cached: true,
         confidence: thoughtRecord.confidence,
         confidence_reason: cached.provider_meta?.degraded
-          ? `${cached.provider_meta?.failure_count || 0} panel model failure(s) occurred in the cached consensus run.`
+          ? "This cached consensus answer was generated in fallback mode after one or more model steps failed."
           : "Served from cache.",
         response_time_ms,
         parent_thought_id: thoughtRecord.parent_thought_id,
@@ -935,7 +935,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       raw_output: consensus.answers.filter((item) => item.answer).map((item) => item.answer).join("\n\n")
     };
     const confidenceReason = consensus.degraded
-      ? `${consensus.failure_count} panel model${consensus.failure_count === 1 ? "" : "s"} failed, so confidence was reduced.`
+      ? `One or more model steps failed, so this answer uses fallback synthesis and carries reduced confidence.`
       : consensus.synthesis
         ? "All panel models and synthesis completed successfully."
         : "Panel completed without synthesis; confidence reflects fallback mode.";
