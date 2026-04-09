@@ -1966,7 +1966,12 @@ describe("HappyThoughts internal consensus", () => {
       expect(res.status).toBe(200);
       const json: any = await res.json();
       expect(json.mode).toBe("consensus");
+      expect(json.answer_mode).toBe("consensus");
       expect(json.confidence).toBe("medium");
+      expect(json.confidence_reason).toMatch(/failed/i);
+      expect(json.models_used).toHaveLength(2);
+      expect(json.models_failed).toHaveLength(1);
+      expect(json.models_failed[0].provider).toBe("mistral");
       expect(json.meta.degraded).toBe(true);
       expect(json.meta.failure_count).toBe(1);
       expect(json.meta.failed_providers).toHaveLength(1);

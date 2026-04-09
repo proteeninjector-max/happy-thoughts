@@ -889,6 +889,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
 
       return ok({
         thought_id: thoughtId,
+        answer_mode: cached.provider_meta?.mode || "quick",
         thought: cached.response,
         provider_id: cached.provider_id,
         provider_score: cached.provider_score ?? null,
@@ -896,9 +897,18 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         price_paid: cachedPrice,
         cached: true,
         confidence: thoughtRecord.confidence,
+        confidence_reason: cached.provider_meta?.degraded
+          ? `${cached.provider_meta?.failure_count || 0} panel model failure(s) occurred in the cached consensus run.`
+          : "Served from cache.",
         response_time_ms,
         parent_thought_id: thoughtRecord.parent_thought_id,
         disclaimer,
+        models_used: Array.isArray(cached.provider_meta?.providers)
+          ? cached.provider_meta.providers.filter((item: any) => item?.ok).map((item: any) => ({ provider: item.provider, model: item.model }))
+          : cached.provider_id
+            ? [{ provider: cached.provider_id, model: cached.provider_meta?.model_hint || "unknown" }]
+            : [],
+        models_failed: Array.isArray(cached.provider_meta?.failed_providers) ? cached.provider_meta.failed_providers : [],
         meta: cached.provider_meta ?? null
       });
     }
@@ -987,15 +997,21 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
 
     return ok({
       thought_id: consensusId,
+      answer_mode: "consensus",
       mode: "consensus",
       thought: finalStructured.blended_answer,
       specialty,
       price_paid: price,
       cached: false,
       confidence: finalStructured.confidence,
+      confidence_reason: consensus.degraded
+        ? `${consensus.failure_count} panel model${consensus.failure_count === 1 ? "" : "s"} failed, so confidence was reduced.`
+        : "All panel models completed successfully.",
       response_time_ms: Date.now() - started,
       parent_thought_id: null,
       disclaimer,
+      models_used: consensus.answers.filter((item) => item.ok).map((item) => ({ provider: item.provider, model: item.model })),
+      models_failed: consensus.failed_providers,
       meta: {
         structured: finalStructured,
         degraded: consensus.degraded,
@@ -1765,8 +1781,28 @@ async function handleDocs(request: Request): Promise<Response> {
     name: "Happy Thoughts",
     description: "Pay-per-thought marketplace for AI agents",
     version: "1.0.0",
+    product_modes: {
+      quick_answer: {
+        request_mode: "quick",
+        summary: "Single-provider fast answer path for cheap/free usage tiers.",
+        response_shape: ["answer_mode", "thought", "confidence", "confidence_reason", "models_used", "models_failed"]
+      },
+      consensus_answer: {
+        request_mode: "consensus",
+        summary: "Three-provider panel followed by synthesis/fact-check blend.",
+        response_shape: [
+          "answer_mode",
+          "thought",
+          "confidence",
+          "confidence_reason",
+          "models_used",
+          "models_failed",
+          "meta.structured"
+        ]
+      }
+    },
     endpoints: [
-      { method: "POST", path: "/think", description: "Pay → route → return thought" },
+      { method: "POST", path: "/think", description: "Pay → route → return thought (supports quick|consensus mode)" },
       { method: "POST", path: "/register", description: "Provider registration with stake" },
       { method: "GET", path: "/discover", description: "List providers" },
       { method: "GET", path: "/route", description: "Preview top 3 providers" },
@@ -1782,6 +1818,31 @@ async function handleDocs(request: Request): Promise<Response> {
       { method: "GET", path: "/docs", description: "Docs summary" },
       { method: "GET", path: "/preview", description: "Sample thought preview" }
     ],
+    think_request_fields: {
+      required: ["prompt", "buyer_wallet"],
+      optional: ["specialty", "mode", "min_confidence"],
+      mode_values: ["quick", "consensus"],
+      min_confidence_note:
+        "For consensus mode, confidence may be reduced automatically if one or more panel models fail."
+    },
+    think_response_fields: {
+      top_level: [
+        "thought_id",
+        "answer_mode",
+        "thought",
+        "specialty",
+        "price_paid",
+        "cached",
+        "confidence",
+        "confidence_reason",
+        "models_used",
+        "models_failed",
+        "response_time_ms",
+        "disclaimer",
+        "meta"
+      ],
+      consensus_meta: ["structured", "degraded", "failure_count", "failed_providers", "providers", "synthesis_model", "synthesis_provider"]
+    },
     payment: "x402 USDC via Base",
     legal: {
       tos: `${base}/legal/tos`,
