@@ -12,6 +12,14 @@ export type ProviderAnswer = {
   error?: string;
 };
 
+export type StructuredSynthesis = {
+  agreement: string[];
+  disagreements: string[];
+  blended_answer: string;
+  confidence: "low" | "medium" | "high";
+  raw_output: string;
+};
+
 export type ConsensusResult = {
   prompt: string;
   specialty: string;
@@ -21,6 +29,7 @@ export type ConsensusResult = {
     model: string;
     output: string;
     response_time_ms: number;
+    structured: StructuredSynthesis;
   };
 };
 
@@ -67,6 +76,36 @@ function buildSynthesisPrompt(prompt: string, specialty: string, answers: Provid
     "Candidate answers:",
     renderedAnswers
   ].join("\n\n");
+}
+
+function parseBullets(section: string): string[] {
+  return section
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^[-*•]\s*/, "").trim())
+    .filter(Boolean);
+}
+
+export function parseSynthesisOutput(output: string): StructuredSynthesis {
+  const normalized = output.replace(/\r\n/g, "\n").trim();
+  const agreementMatch = normalized.match(/Agreement:\s*([\s\S]*?)(?:\n\s*Disagreements\s*\/\s*Caveats:|\n\s*Blended Answer:|$)/i);
+  const disagreementsMatch = normalized.match(/Disagreements\s*\/\s*Caveats:\s*([\s\S]*?)(?:\n\s*Blended Answer:|\n\s*Confidence:|$)/i);
+  const blendedMatch = normalized.match(/Blended Answer:\s*([\s\S]*?)(?:\n\s*Confidence:|$)/i);
+  const confidenceMatch = normalized.match(/Confidence:\s*(low|medium|high)/i);
+
+  const agreement = agreementMatch ? parseBullets(agreementMatch[1]) : [];
+  const disagreements = disagreementsMatch ? parseBullets(disagreementsMatch[1]) : [];
+  const blended_answer = trimText(blendedMatch?.[1]) || normalized;
+  const confidence = (confidenceMatch?.[1]?.toLowerCase() as "low" | "medium" | "high") || "medium";
+
+  return {
+    agreement,
+    disagreements,
+    blended_answer,
+    confidence,
+    raw_output: normalized
+  };
 }
 
 async function callOpenAICompatible(
@@ -209,6 +248,7 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
   const synthesisPrompt = buildSynthesisPrompt(prompt, specialty, successfulAnswers);
   const synthesisStarted = Date.now();
   const output = await callGoogleGenerate(env.GEMMA_AI_API_KEY, synthesisModel, synthesisPrompt);
+  const structured = parseSynthesisOutput(output);
 
   return {
     prompt,
@@ -218,7 +258,8 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
       provider: "google_gemini",
       model: synthesisModel,
       output,
-      response_time_ms: Date.now() - synthesisStarted
+      response_time_ms: Date.now() - synthesisStarted,
+      structured
     }
   };
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import worker from "../src/index";
 import { updateScore, type ScoreRecord } from "../src/scoring";
 import { runDecay } from "../src/decay";
+import { parseSynthesisOutput } from "../src/consensus";
 
 class MockKV implements KVNamespace {
   private store = new Map<string, string>();
@@ -1781,6 +1782,27 @@ describe("HappyThoughts provider hosted mode", () => {
 });
 
 describe("HappyThoughts internal consensus", () => {
+  it("parseSynthesisOutput extracts sections cleanly", () => {
+    const parsed = parseSynthesisOutput([
+      "Agreement:",
+      "- A",
+      "- B",
+      "",
+      "Disagreements / Caveats:",
+      "- C",
+      "",
+      "Blended Answer:",
+      "Final answer body.",
+      "",
+      "Confidence: high"
+    ].join("\n"));
+
+    expect(parsed.agreement).toEqual(["A", "B"]);
+    expect(parsed.disagreements).toEqual(["C"]);
+    expect(parsed.blended_answer).toBe("Final answer body.");
+    expect(parsed.confidence).toBe("high");
+  });
+
   it("POST /internal/consensus returns panel answers plus blended output", async () => {
     const env = makeEnv();
     env.OWNER_KEY = "test-owner";
@@ -1814,7 +1836,19 @@ describe("HappyThoughts internal consensus", () => {
       if (url.includes("models/gemini-2.5-flash:generateContent")) {
         return new Response(
           JSON.stringify({
-            candidates: [{ content: { parts: [{ text: "Blended final answer" }] } }]
+            candidates: [{ content: { parts: [{ text: [
+              "Agreement:",
+              "- Shared point one",
+              "- Shared point two",
+              "",
+              "Disagreements / Caveats:",
+              "- Caveat one",
+              "",
+              "Blended Answer:",
+              "Blended final answer",
+              "",
+              "Confidence: high"
+            ].join("\n") }] } }]
           }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
@@ -1846,6 +1880,16 @@ describe("HappyThoughts internal consensus", () => {
         "google_gemma"
       ]);
       expect(json.final_answer).toBe("Blended final answer");
+      expect(json.structured.agreement).toEqual(["Shared point one", "Shared point two"]);
+      expect(json.structured.disagreements).toEqual(["Caveat one"]);
+      expect(json.structured.confidence).toBe("high");
+      expect(json.consensus_id).toMatch(/^consensus_/);
+
+      const storedRaw = await env.THOUGHTS.get(`consensus:${json.consensus_id}`);
+      expect(storedRaw).toBeTruthy();
+      const stored: any = JSON.parse(storedRaw as string);
+      expect(stored.final_answer).toBe("Blended final answer");
+      expect(stored.synthesis.structured.confidence).toBe("high");
     } finally {
       globalThis.fetch = originalFetch;
     }

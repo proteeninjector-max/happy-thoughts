@@ -587,13 +587,29 @@ async function handleInternalConsensus(request: Request, env: Env): Promise<Resp
 
   try {
     const result = await runConsensus(prompt, specialty, env);
+    const consensusId = `consensus_${crypto.randomUUID()}`;
+    const createdAt = new Date().toISOString();
+    const lineageRecord = {
+      consensus_id: consensusId,
+      mode: "consensus_v1",
+      prompt,
+      specialty,
+      created_at: createdAt,
+      providers: result.answers,
+      synthesis: result.synthesis,
+      final_answer: result.synthesis.structured.blended_answer
+    };
+    await env.THOUGHTS.put(`consensus:${consensusId}`, JSON.stringify(lineageRecord));
+
     return ok({
+      consensus_id: consensusId,
       mode: "consensus_v1",
       prompt,
       specialty,
       providers: result.answers,
       synthesis: result.synthesis,
-      final_answer: result.synthesis.output
+      final_answer: result.synthesis.structured.blended_answer,
+      structured: result.synthesis.structured
     });
   } catch (err: any) {
     return jsonResponse(
