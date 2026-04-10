@@ -2135,7 +2135,7 @@ async function handlePreview(): Promise<Response> {
     sample_response: "Example thought output",
     sample_disclaimer:
       "This thought is not investment advice. Not a solicitation to buy or sell any asset. Past performance does not guarantee future results.",
-    note: "This is a preview. Call x402 payment to receive real thoughts."
+    note: "This is a preview. Public free usage is moving toward capped Consensus answers, with Verified as the paid trust layer."
   });
 }
 
