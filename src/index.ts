@@ -846,7 +846,8 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
 
   const promptHash = await sha256Hex(normalizePrompt(prompt));
   const cacheKey = `cache:${mode}:${promptHash}`;
-  const cachedRaw = await env.CACHE.get(cacheKey);
+  const forceFresh = Boolean(body?.force_fresh) || new URL(request.url).searchParams.get("fresh") === "1";
+  const cachedRaw = forceFresh ? null : await env.CACHE.get(cacheKey);
 
   if (cachedRaw) {
     const cached = JSON.parse(cachedRaw);
@@ -2176,7 +2177,7 @@ async function handleAdminPlayground(): Promise<Response> {
     </section>
 
     <section class="grid">
-      <form id="playground-form" class="card stack">
+      <form id="playground-form" class="card stack" method="POST" action="/admin/run-simple/run">
         <label>
           Owner key
           <input id="ownerKey" type="password" placeholder="Required for /internal routes" autocomplete="off" />
@@ -2425,6 +2426,7 @@ async function handleAdminPlayground(): Promise<Response> {
         specialty: els.specialty.value.trim(),
         buyer_wallet: els.buyerWallet.value.trim(),
         min_confidence: Number(els.minConfidence.value || 0),
+        force_fresh: els.forceFresh.value === '1',
         mode
       };
 
@@ -2451,6 +2453,7 @@ async function handleAdminPlayground(): Promise<Response> {
     }
 
     els.form.addEventListener('submit', runPrompt);
+    els.runButton.addEventListener('click', runPrompt);
     els.resetButton.addEventListener('click', resetRender);
     resetRender();
   </script>
@@ -3042,8 +3045,14 @@ export default {
       return handleShillTemplate(request, env);
     }
 
-    if (request.method === "GET" && url.pathname === "/admin/playground") {
+    if (request.method === "GET" && (url.pathname === "/admin/playground" || url.pathname === "/admin/playground-v2" || url.pathname === "/admin/run-simple")) {
+      if (!allowAdminUi(request)) return notFound();
       return handleAdminPlayground();
+    }
+
+    if (request.method === "POST" && (url.pathname === "/admin/playground/run" || url.pathname === "/admin/playground-v2/run" || url.pathname === "/admin/run-simple/run")) {
+      if (!allowAdminUi(request)) return notFound();
+      return handleAdminPlaygroundResult(request, env);
     }
 
     if (request.method === "GET" && url.pathname === "/llm.txt") {
