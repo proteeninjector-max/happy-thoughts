@@ -3,6 +3,30 @@ import type { Env } from "./index";
 type ConsensusProviderId = "cerebras" | "mistral" | "google_gemma";
 type SynthesisProviderId = "google_gemini" | "mistral";
 
+type PanelProviderConfig = {
+  provider: ConsensusProviderId;
+  model: string;
+  run: () => Promise<string>;
+};
+
+type SynthesisProviderConfig = {
+  provider: SynthesisProviderId;
+  model: string;
+  run: (
+    prompt: string,
+    specialty: string,
+    normalized: NormalizedConsensusInput,
+    failureCount: number,
+    successfulCount: number
+  ) => Promise<{
+    provider: SynthesisProviderId;
+    model: string;
+    output: string;
+    response_time_ms: number;
+    structured: StructuredSynthesis;
+  }>;
+};
+
 export type ProviderAnswer = {
   provider: ConsensusProviderId;
   model: string;
@@ -55,6 +79,11 @@ export type ConsensusResult = {
     model: string;
     error: string;
   }>;
+};
+
+export type ConsensusRuntimeConfig = {
+  panel: Array<{ provider: ConsensusProviderId; model: string }>;
+  synthesis: Array<{ provider: SynthesisProviderId; model: string }>;
 };
 
 function trimText(value: unknown): string {
@@ -398,28 +427,72 @@ async function tryMistralSynthesis(
   return { provider: "mistral" as const, model: synthesisModel, output, response_time_ms: Date.now() - started, structured };
 }
 
-export async function runConsensus(prompt: string, specialty: string, env: Env): Promise<ConsensusResult> {
+export function getConsensusRuntimeConfig(env: Env): ConsensusRuntimeConfig {
   const cerebrasModel = env.CEREBRAS_MODEL || "llama3.1-8b";
   const mistralModel = env.MISTRAL_MODEL || "mistral-small-latest";
   const gemmaModel = env.GEMMA_MODEL || "gemma-4-31b-it";
   const googleSynthesisModel = env.GEMINI_SYNTHESIS_MODEL || "gemini-2.5-flash";
   const mistralSynthesisModel = env.MISTRAL_SYNTHESIS_MODEL || mistralModel;
+
+  return {
+    panel: [
+      { provider: "cerebras", model: cerebrasModel },
+      { provider: "mistral", model: mistralModel },
+      { provider: "google_gemma", model: gemmaModel }
+    ],
+    synthesis: [
+      { provider: "google_gemini", model: googleSynthesisModel },
+      { provider: "mistral", model: mistralSynthesisModel }
+    ]
+  };
+}
+
+function buildPanelProviders(answerPrompt: string, env: Env, config: ConsensusRuntimeConfig): PanelProviderConfig[] {
+  const runners: Record<ConsensusProviderId, () => Promise<string>> = {
+    cerebras: async () => {
+      if (!env.CEREBRAS_API_KEY) throw new Error("CEREBRAS_API_KEY not configured");
+      const model = config.panel.find((item) => item.provider === "cerebras")?.model || env.CEREBRAS_MODEL || "llama3.1-8b";
+      return callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", env.CEREBRAS_API_KEY, model, answerPrompt, 700);
+    },
+    mistral: async () => {
+      if (!env.MISTRAL_API_KEY) throw new Error("MISTRAL_API_KEY not configured");
+      const model = config.panel.find((item) => item.provider === "mistral")?.model || env.MISTRAL_MODEL || "mistral-small-latest";
+      return callOpenAICompatible("https://api.mistral.ai/v1/chat/completions", env.MISTRAL_API_KEY, model, answerPrompt, 700);
+    },
+    google_gemma: async () => {
+      if (!env.GEMMA_AI_API_KEY) throw new Error("GEMMA_AI_API_KEY not configured");
+      const model = config.panel.find((item) => item.provider === "google_gemma")?.model || env.GEMMA_MODEL || "gemma-4-31b-it";
+      return callGoogleGenerate(env.GEMMA_AI_API_KEY, model, answerPrompt, 900);
+    }
+  };
+
+  return config.panel.map((item) => ({ provider: item.provider, model: item.model, run: runners[item.provider] }));
+}
+
+function buildSynthesisProviders(env: Env, config: ConsensusRuntimeConfig): SynthesisProviderConfig[] {
+  const runners: Record<SynthesisProviderId, SynthesisProviderConfig["run"]> = {
+    google_gemini: (prompt, specialty, normalized, failureCount, successfulCount) => {
+      const model = config.synthesis.find((item) => item.provider === "google_gemini")?.model || env.GEMINI_SYNTHESIS_MODEL || "gemini-2.5-flash";
+      return tryGoogleSynthesis(prompt, specialty, normalized, env, model, failureCount, successfulCount);
+    },
+    mistral: (prompt, specialty, normalized, failureCount, successfulCount) => {
+      const model = config.synthesis.find((item) => item.provider === "mistral")?.model || env.MISTRAL_SYNTHESIS_MODEL || env.MISTRAL_MODEL || "mistral-small-latest";
+      return tryMistralSynthesis(prompt, specialty, normalized, env, model, failureCount, successfulCount);
+    }
+  };
+
+  return config.synthesis.map((item) => ({ provider: item.provider, model: item.model, run: runners[item.provider] }));
+}
+
+export async function runConsensus(prompt: string, specialty: string, env: Env): Promise<ConsensusResult> {
+  const config = getConsensusRuntimeConfig(env);
   const answerPrompt = buildAnswerPrompt(prompt, specialty);
 
-  const answers = await Promise.all([
-    gatherProviderAnswer("cerebras", cerebrasModel, async () => {
-      if (!env.CEREBRAS_API_KEY) throw new Error("CEREBRAS_API_KEY not configured");
-      return callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", env.CEREBRAS_API_KEY, cerebrasModel, answerPrompt, 700);
-    }),
-    gatherProviderAnswer("mistral", mistralModel, async () => {
-      if (!env.MISTRAL_API_KEY) throw new Error("MISTRAL_API_KEY not configured");
-      return callOpenAICompatible("https://api.mistral.ai/v1/chat/completions", env.MISTRAL_API_KEY, mistralModel, answerPrompt, 700);
-    }),
-    gatherProviderAnswer("google_gemma", gemmaModel, async () => {
-      if (!env.GEMMA_AI_API_KEY) throw new Error("GEMMA_AI_API_KEY not configured");
-      return callGoogleGenerate(env.GEMMA_AI_API_KEY, gemmaModel, answerPrompt, 900);
-    })
-  ]);
+  const answers = await Promise.all(
+    buildPanelProviders(answerPrompt, env, config).map((item) =>
+      gatherProviderAnswer(item.provider, item.model, item.run)
+    )
+  );
 
   const successfulAnswers = answers.filter((item) => item.ok && item.answer);
   const failedProviders = answers
@@ -461,41 +534,46 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
 
   const synthesisFailures = [...failedProviders];
 
-  try {
-    const google = await tryGoogleSynthesis(prompt, specialty, normalized, env, googleSynthesisModel, synthesisFailures.length, parsed_answers.length);
-    return {
-      prompt,
-      specialty,
-      answers,
-      parsed_answers,
-      normalized,
-      synthesis: google,
-      degraded: synthesisFailures.length > 0,
-      failure_count: synthesisFailures.length,
-      failed_providers: synthesisFailures
-    };
-  } catch (err: any) {
-    synthesisFailures.push({ provider: "google_gemini", model: googleSynthesisModel, error: err?.message || String(err) });
+  for (const synthesisProvider of buildSynthesisProviders(env, config)) {
+    try {
+      const synthesis = await synthesisProvider.run(
+        prompt,
+        specialty,
+        normalized,
+        synthesisFailures.length,
+        parsed_answers.length
+      );
+
+      if (synthesisProvider.provider === "mistral") {
+        synthesis.structured = normalizeStructuredConfidence(
+          synthesis.structured,
+          parsed_answers.length,
+          synthesisFailures.length,
+          true
+        );
+      }
+
+      return {
+        prompt,
+        specialty,
+        answers,
+        parsed_answers,
+        normalized,
+        synthesis,
+        degraded: synthesisFailures.length > 0,
+        failure_count: synthesisFailures.length,
+        failed_providers: synthesisFailures
+      };
+    } catch (err: any) {
+      synthesisFailures.push({
+        provider: synthesisProvider.provider,
+        model: synthesisProvider.model,
+        error: err?.message || String(err)
+      });
+    }
   }
 
-  try {
-    const mistralSynth = await tryMistralSynthesis(prompt, specialty, normalized, env, mistralSynthesisModel, synthesisFailures.length, parsed_answers.length);
-    mistralSynth.structured = normalizeStructuredConfidence(mistralSynth.structured, parsed_answers.length, synthesisFailures.length, true);
-    return {
-      prompt,
-      specialty,
-      answers,
-      parsed_answers,
-      normalized,
-      synthesis: mistralSynth,
-      degraded: true,
-      failure_count: synthesisFailures.length,
-      failed_providers: synthesisFailures
-    };
-  } catch (err: any) {
-    synthesisFailures.push({ provider: "mistral", model: mistralSynthesisModel, error: err?.message || String(err) });
-  }
-
+  const fallbackModel = config.synthesis[config.synthesis.length - 1]?.model || env.MISTRAL_SYNTHESIS_MODEL || env.MISTRAL_MODEL || "mistral-small-latest";
   const structured = buildHumanFallback(prompt, specialty, normalized, synthesisFailures);
   return {
     prompt,
@@ -505,7 +583,7 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
     normalized,
     synthesis: {
       provider: "mistral",
-      model: mistralSynthesisModel,
+      model: fallbackModel,
       output: structured.raw_output,
       response_time_ms: 0,
       structured

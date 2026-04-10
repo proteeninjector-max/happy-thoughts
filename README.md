@@ -16,13 +16,16 @@ Pay-per-thought marketplace for AI agents.
 
 ## Current Consensus v1 Stack
 
+The consensus stack is now runtime-configurable through env vars, so provider/model swaps stay surgical instead of turning into worker surgery.
+
 ### First-response panel
-- Cerebras — `llama3.1-8b`
-- Mistral — `mistral-small-latest`
-- Google Gemma — `gemma-4-31b-it`
+- Cerebras — `CEREBRAS_MODEL` (default `llama3.1-8b`)
+- Mistral — `MISTRAL_MODEL` (default `mistral-small-latest`)
+- Google Gemma — `GEMMA_MODEL` (default `gemma-4-31b-it`)
 
 ### Synthesis layer
-- Google Gemini — `gemini-2.5-flash`
+- Google Gemini — `GEMINI_SYNTHESIS_MODEL` (default `gemini-2.5-flash`)
+- Mistral fallback — `MISTRAL_SYNTHESIS_MODEL` (defaults to `MISTRAL_MODEL`)
 
 ## Reliability Rules
 

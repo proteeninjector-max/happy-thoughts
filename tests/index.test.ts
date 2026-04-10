@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import worker from "../src/index";
 import { updateScore, type ScoreRecord } from "../src/scoring";
 import { runDecay } from "../src/decay";
-import { parseSynthesisOutput, runConsensus } from "../src/consensus";
+import { getConsensusRuntimeConfig, parseSynthesisOutput, runConsensus } from "../src/consensus";
 
 class MockKV implements KVNamespace {
   private store = new Map<string, string>();
@@ -46,6 +46,31 @@ function makeEnv() {
     OWNER_KEY_HEADER: "X-OWNER-KEY"
   } as any;
 }
+
+describe("Happy Thoughts consensus runtime config", () => {
+  it("builds provider/model config from env overrides", () => {
+    const env = {
+      ...makeEnv(),
+      CEREBRAS_MODEL: "llama-override",
+      MISTRAL_MODEL: "mistral-override",
+      GEMMA_MODEL: "gemma-override",
+      GEMINI_SYNTHESIS_MODEL: "gemini-override",
+      MISTRAL_SYNTHESIS_MODEL: "mistral-synth-override"
+    } as any;
+
+    const config = getConsensusRuntimeConfig(env);
+
+    expect(config.panel).toEqual([
+      { provider: "cerebras", model: "llama-override" },
+      { provider: "mistral", model: "mistral-override" },
+      { provider: "google_gemma", model: "gemma-override" }
+    ]);
+    expect(config.synthesis).toEqual([
+      { provider: "google_gemini", model: "gemini-override" },
+      { provider: "mistral", model: "mistral-synth-override" }
+    ]);
+  });
+});
 
 async function seedProvider(env: any, providerId = "prov_1") {
   const provider = {

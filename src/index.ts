@@ -2747,4 +2747,6 @@ export interface Env {
   GEMMA_AI_API_KEY?: string;
   GEMMA_MODEL?: string;
   GEMINI_SYNTHESIS_MODEL?: string;
+  MISTRAL_SYNTHESIS_MODEL?: string;
 }
+
