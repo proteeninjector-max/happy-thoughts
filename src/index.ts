@@ -2349,14 +2349,14 @@ async function handleAdminPlayground(): Promise<Response> {
         if (item.display) {
           const blocks = [
             ['Thesis', item.display.thesis],
-            ['Key points', Array.isArray(item.display.key_points) ? item.display.key_points.join('\n• ') : ''],
-            ['Caveats', Array.isArray(item.display.caveats) ? item.display.caveats.join('\n• ') : ''],
+            ['Key points', Array.isArray(item.display.key_points) ? item.display.key_points.join('\\n• ') : ''],
+            ['Caveats', Array.isArray(item.display.caveats) ? item.display.caveats.join('\\n• ') : ''],
             ['Bottom line', item.display.bottom_line]
           ];
           for (const [label, value] of blocks) {
             if (!value) continue;
             const pre = document.createElement('pre');
-            pre.textContent = label + '\n' + (label.includes('points') || label === 'Caveats' ? '• ' + value : value);
+            pre.textContent = label + '\\n' + (label.includes('points') || label === 'Caveats' ? '• ' + value : value);
             card.appendChild(pre);
           }
         } else if (item.raw_answer) {
@@ -2367,7 +2367,7 @@ async function handleAdminPlayground(): Promise<Response> {
 
         if (item.error) {
           const err = document.createElement('pre');
-          err.textContent = 'Error\n' + item.error;
+          err.textContent = 'Error\\n' + item.error;
           card.appendChild(err);
         }
 
