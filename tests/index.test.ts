@@ -2420,6 +2420,83 @@ describe("HappyThoughts internal consensus", () => {
   });
 });
 
+describe("HappyThoughts general fallback routing", () => {
+  it("uses Mistral before Anthropic for general quick answers", async () => {
+    const env = makeEnv();
+    env.OWNER_KEY = "test-owner";
+    env.MISTRAL_API_KEY = "test-mistral";
+    env.ANTHROPIC_API_KEY = "test-anthropic";
+    await env.PROVIDERS.put(`provider:claude_haiku`, JSON.stringify({
+      id: "claude_haiku",
+      name: "Claude Haiku General",
+      description: "General lane",
+      specialties: ["other/general"],
+      payout_wallet: "0xabc",
+      callback_url: "internal://claude_haiku",
+      delivery_mode: "webhook",
+      delivery_status: "ready",
+      tier: "founding_brain"
+    }));
+    await env.SCORES.put(`score:claude_haiku`, JSON.stringify({
+      happy_trail: 75,
+      quality: 75,
+      reliability: 75,
+      trust: 75,
+      total_thoughts: 10,
+      rated_thoughts: 5,
+      happy_rate: 0.9,
+      sad_rate: 0.1,
+      active_days: 10,
+      last_active: new Date().toISOString(),
+      tier: "founding_brain",
+      flags: [],
+      reuse_rate: 0.2,
+      weekly_delta: 4
+    }));
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any, init?: any) => {
+      const url = typeof input === "string" ? input : input?.url || "";
+      if (url.includes("api.mistral.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Covered calls let you sell a call against shares you already own. You collect premium, cap upside above the strike, and still eat downside if the stock drops." } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("api.anthropic.com")) {
+        throw new Error("Anthropic should not be called when Mistral is available");
+      }
+      return originalFetch(input, init);
+    }) as any;
+
+    try {
+      const res = await worker.fetch(
+        new Request("https://test/internal/think", {
+          method: "POST",
+          headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+          body: JSON.stringify({
+            prompt: "Explain how selling covered stock options works.",
+            specialty: "other/general",
+            buyer_wallet: "0xbuyer"
+          })
+        }),
+        env,
+        {} as any
+      );
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.provider_id).toBe("claude_haiku");
+      expect(json.thought).toContain("Covered calls let you sell a call against shares you already own");
+      expect(json.meta.source).toBe("mistral");
+      expect(json.models_used).toEqual([{ provider: "claude_haiku", model: env.MISTRAL_MODEL || "mistral-small-latest" }]);
+      expect(json.models_failed).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
 describe("HappyThoughts Phase 7", () => {
   it("POST /internal/think — owner bypass", async () => {
     const env = makeEnv();
