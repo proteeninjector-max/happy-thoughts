@@ -2067,6 +2067,405 @@ async function handlePreview(): Promise<Response> {
   });
 }
 
+async function handleAdminPlayground(): Promise<Response> {
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Happy Thoughts Admin Playground</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0613;
+      --panel: rgba(20, 16, 32, 0.9);
+      --panel-2: rgba(30, 22, 48, 0.92);
+      --text: #f5f0ff;
+      --muted: #b6a9d6;
+      --border: rgba(189, 143, 255, 0.22);
+      --accent: #c26bff;
+      --accent-2: #6cf0ff;
+      --danger: #ff7aa2;
+      --ok: #72f4b8;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, #1c1033 0%, var(--bg) 48%, #06040c 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .shell { max-width: 1200px; margin: 0 auto; padding: 32px 20px 60px; }
+    .hero { margin-bottom: 24px; }
+    .eyebrow { color: var(--accent-2); text-transform: uppercase; letter-spacing: 0.14em; font-size: 12px; }
+    h1 { margin: 8px 0 10px; font-size: 38px; line-height: 1.05; }
+    .lead { color: var(--muted); max-width: 850px; line-height: 1.5; }
+    .grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.35);
+      backdrop-filter: blur(16px);
+    }
+    .stack { display: grid; gap: 12px; }
+    label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+    input, textarea, select {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid rgba(189, 143, 255, 0.24);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 12px 13px;
+      font: inherit;
+    }
+    textarea { min-height: 180px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, var(--accent), #8a5cff);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary { background: rgba(255,255,255,0.08); }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    .muted { color: var(--muted); }
+    .mono, pre, code { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .status-ok { color: var(--ok); }
+    .status-bad { color: var(--danger); }
+    .render { display: grid; gap: 16px; }
+    .answer { white-space: pre-wrap; line-height: 1.55; font-size: 15px; }
+    .meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .stat { background: rgba(255,255,255,0.03); border-radius: 14px; padding: 12px; border: 1px solid rgba(255,255,255,0.05); }
+    .stat-label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+    .stat-value { font-weight: 700; }
+    .panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 14px; padding: 14px; }
+    .panel h3 { margin: 0 0 10px; font-size: 16px; }
+    ul { margin: 8px 0 0 18px; padding: 0; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: #d9d1ef; }
+    .hidden { display: none; }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+      .meta-grid, .row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="eyebrow">Owner-only testing lane</div>
+      <h1>Happy Thoughts Admin Playground</h1>
+      <p class="lead">Unlinked admin route for real prompt testing without x402 friction. Paste the owner key, run quick or consensus, and inspect the exact product-shaped response the frontend would render.</p>
+      <div class="pill mono">Route: /admin/playground</div>
+    </section>
+
+    <section class="grid">
+      <form id="playground-form" class="card stack">
+        <label>
+          Owner key
+          <input id="ownerKey" type="password" placeholder="Required for /internal routes" autocomplete="off" />
+        </label>
+        <label>
+          Prompt
+          <textarea id="prompt">Explain how selling covered stock options works.</textarea>
+        </label>
+        <div class="row">
+          <label>
+            Mode
+            <select id="mode">
+              <option value="quick">Quick</option>
+              <option value="consensus">Consensus</option>
+            </select>
+          </label>
+          <label>
+            Specialty
+            <input id="specialty" type="text" value="finance/personal-finance" placeholder="other/general" />
+          </label>
+        </div>
+        <div class="row">
+          <label>
+            Buyer wallet
+            <input id="buyerWallet" class="mono" type="text" value="0x1111111111111111111111111111111111111111" />
+          </label>
+          <label>
+            Min confidence
+            <input id="minConfidence" type="number" min="0" max="1" step="0.01" value="0" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="runButton" type="submit">Run prompt</button>
+          <button id="resetButton" class="secondary" type="button">Reset output</button>
+        </div>
+        <div id="status" class="muted">Idle.</div>
+      </form>
+
+      <section class="render">
+        <article class="card">
+          <div class="meta-grid">
+            <div class="stat"><div class="stat-label">Mode</div><div id="statMode" class="stat-value">—</div></div>
+            <div class="stat"><div class="stat-label">Provider / panel</div><div id="statProvider" class="stat-value">—</div></div>
+            <div class="stat"><div class="stat-label">Confidence</div><div id="statConfidence" class="stat-value">—</div></div>
+            <div class="stat"><div class="stat-label">Specialty</div><div id="statSpecialty" class="stat-value">—</div></div>
+            <div class="stat"><div class="stat-label">Price</div><div id="statPrice" class="stat-value">—</div></div>
+            <div class="stat"><div class="stat-label">Response time</div><div id="statTime" class="stat-value">—</div></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2 style="margin-top:0">What the human would see</h2>
+          <div id="answerText" class="answer muted">Run a prompt to render the answer.</div>
+        </article>
+
+        <article id="reasonCard" class="card hidden">
+          <h2 style="margin-top:0">Confidence reason</h2>
+          <div id="confidenceReason" class="answer"></div>
+        </article>
+
+        <article id="consensusSummaryCard" class="card hidden">
+          <h2 style="margin-top:0">Consensus summary</h2>
+          <div class="panel">
+            <h3>Agreement</h3>
+            <ul id="agreementList"></ul>
+          </div>
+          <div class="panel" style="margin-top:12px">
+            <h3>Disagreements / caveats</h3>
+            <ul id="disagreementList"></ul>
+          </div>
+        </article>
+
+        <article id="modelPanelsCard" class="card hidden">
+          <h2 style="margin-top:0">Model panels</h2>
+          <div id="modelPanels" class="stack"></div>
+        </article>
+
+        <article class="card">
+          <h2 style="margin-top:0">Raw response</h2>
+          <pre id="rawOutput">{}</pre>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const els = {
+      form: document.getElementById('playground-form'),
+      ownerKey: document.getElementById('ownerKey'),
+      prompt: document.getElementById('prompt'),
+      mode: document.getElementById('mode'),
+      specialty: document.getElementById('specialty'),
+      buyerWallet: document.getElementById('buyerWallet'),
+      minConfidence: document.getElementById('minConfidence'),
+      runButton: document.getElementById('runButton'),
+      resetButton: document.getElementById('resetButton'),
+      status: document.getElementById('status'),
+      statMode: document.getElementById('statMode'),
+      statProvider: document.getElementById('statProvider'),
+      statConfidence: document.getElementById('statConfidence'),
+      statSpecialty: document.getElementById('statSpecialty'),
+      statPrice: document.getElementById('statPrice'),
+      statTime: document.getElementById('statTime'),
+      answerText: document.getElementById('answerText'),
+      reasonCard: document.getElementById('reasonCard'),
+      confidenceReason: document.getElementById('confidenceReason'),
+      consensusSummaryCard: document.getElementById('consensusSummaryCard'),
+      agreementList: document.getElementById('agreementList'),
+      disagreementList: document.getElementById('disagreementList'),
+      modelPanelsCard: document.getElementById('modelPanelsCard'),
+      modelPanels: document.getElementById('modelPanels'),
+      rawOutput: document.getElementById('rawOutput')
+    };
+
+    const STORAGE_KEY = 'ht_admin_playground_owner_key';
+    const savedKey = sessionStorage.getItem(STORAGE_KEY);
+    if (savedKey) els.ownerKey.value = savedKey;
+
+    function setStatus(text, ok = true) {
+      els.status.textContent = text;
+      els.status.className = ok ? 'status-ok' : 'status-bad';
+    }
+
+    function resetRender() {
+      els.statMode.textContent = '—';
+      els.statProvider.textContent = '—';
+      els.statConfidence.textContent = '—';
+      els.statSpecialty.textContent = '—';
+      els.statPrice.textContent = '—';
+      els.statTime.textContent = '—';
+      els.answerText.textContent = 'Run a prompt to render the answer.';
+      els.answerText.className = 'answer muted';
+      els.confidenceReason.textContent = '';
+      els.reasonCard.classList.add('hidden');
+      els.consensusSummaryCard.classList.add('hidden');
+      els.modelPanelsCard.classList.add('hidden');
+      els.agreementList.innerHTML = '';
+      els.disagreementList.innerHTML = '';
+      els.modelPanels.innerHTML = '';
+      els.rawOutput.textContent = '{}';
+      setStatus('Idle.');
+    }
+
+    function li(text) {
+      const node = document.createElement('li');
+      node.textContent = text;
+      return node;
+    }
+
+    function renderModelPanels(panels) {
+      els.modelPanels.innerHTML = '';
+      const items = Array.isArray(panels) ? panels : [];
+      if (!items.length) {
+        els.modelPanelsCard.classList.add('hidden');
+        return;
+      }
+      els.modelPanelsCard.classList.remove('hidden');
+      for (const item of items) {
+        const card = document.createElement('div');
+        card.className = 'panel';
+        const heading = document.createElement('h3');
+        heading.textContent = item.provider + ' — ' + (item.model || 'unknown');
+        card.appendChild(heading);
+
+        const status = document.createElement('div');
+        status.className = 'muted';
+        status.textContent = 'status: ' + (item.status || 'unknown') + (item.response_time_ms != null ? ' · ' + item.response_time_ms + ' ms' : '');
+        card.appendChild(status);
+
+        if (item.display) {
+          const blocks = [
+            ['Thesis', item.display.thesis],
+            ['Key points', Array.isArray(item.display.key_points) ? item.display.key_points.join('\n• ') : ''],
+            ['Caveats', Array.isArray(item.display.caveats) ? item.display.caveats.join('\n• ') : ''],
+            ['Bottom line', item.display.bottom_line]
+          ];
+          for (const [label, value] of blocks) {
+            if (!value) continue;
+            const pre = document.createElement('pre');
+            pre.textContent = label + '\n' + (label.includes('points') || label === 'Caveats' ? '• ' + value : value);
+            card.appendChild(pre);
+          }
+        } else if (item.raw_answer) {
+          const pre = document.createElement('pre');
+          pre.textContent = item.raw_answer;
+          card.appendChild(pre);
+        }
+
+        if (item.error) {
+          const err = document.createElement('pre');
+          err.textContent = 'Error\n' + item.error;
+          card.appendChild(err);
+        }
+
+        els.modelPanels.appendChild(card);
+      }
+    }
+
+    function renderResponse(data) {
+      els.rawOutput.textContent = JSON.stringify(data, null, 2);
+      els.statMode.textContent = data.answer_mode || data.mode || 'quick';
+      els.statProvider.textContent = data.provider_id || (Array.isArray(data.models_used) ? data.models_used.map((x) => x.provider).join(', ') : 'consensus_panel');
+      els.statConfidence.textContent = data.confidence || '—';
+      els.statSpecialty.textContent = data.specialty || '—';
+      els.statPrice.textContent = data.price_paid != null ? String(data.price_paid) : '0';
+      els.statTime.textContent = data.response_time_ms != null ? data.response_time_ms + ' ms' : '—';
+      els.answerText.textContent = data.thought || data.final_answer || data.message || 'No answer returned.';
+      els.answerText.className = 'answer';
+
+      const reason = data.confidence_reason || data.panels?.final_answer?.confidence_reason || '';
+      if (reason) {
+        els.reasonCard.classList.remove('hidden');
+        els.confidenceReason.textContent = reason;
+      } else {
+        els.reasonCard.classList.add('hidden');
+      }
+
+      const agreement = data.panels?.consensus_summary?.agreement || data.structured?.agreement || [];
+      const disagreements = data.panels?.consensus_summary?.disagreements || data.structured?.disagreements || [];
+      els.agreementList.innerHTML = '';
+      els.disagreementList.innerHTML = '';
+      if (agreement.length || disagreements.length) {
+        els.consensusSummaryCard.classList.remove('hidden');
+        (agreement.length ? agreement : ['None material.']).forEach((item) => els.agreementList.appendChild(li(item)));
+        (disagreements.length ? disagreements : ['None material.']).forEach((item) => els.disagreementList.appendChild(li(item)));
+      } else {
+        els.consensusSummaryCard.classList.add('hidden');
+      }
+
+      renderModelPanels(data.panels?.model_answers || data.providers || []);
+    }
+
+    async function runPrompt(event) {
+      event.preventDefault();
+      const ownerKey = els.ownerKey.value.trim();
+      if (!ownerKey) {
+        setStatus('Owner key required.', false);
+        return;
+      }
+      sessionStorage.setItem(STORAGE_KEY, ownerKey);
+
+      const mode = els.mode.value;
+      const path = mode === 'consensus' ? '/internal/consensus' : '/internal/think';
+      const payload = {
+        prompt: els.prompt.value,
+        specialty: els.specialty.value.trim(),
+        buyer_wallet: els.buyerWallet.value.trim(),
+        min_confidence: Number(els.minConfidence.value || 0),
+        mode
+      };
+
+      els.runButton.disabled = true;
+      setStatus('Running prompt...');
+
+      try {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'X-OWNER-KEY': ownerKey
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json().catch(() => ({ error: 'invalid_json', message: 'Response was not valid JSON.' }));
+        renderResponse(data);
+        setStatus(response.ok ? 'Prompt completed.' : 'Prompt failed: ' + (data.message || data.error || response.status), response.ok);
+      } catch (error) {
+        setStatus('Request failed: ' + (error?.message || String(error)), false);
+      } finally {
+        els.runButton.disabled = false;
+      }
+    }
+
+    els.form.addEventListener('submit', runPrompt);
+    els.resetButton.addEventListener('click', resetRender);
+    resetRender();
+  </script>
+</body>
+</html>`;
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store"
+    }
+  });
+}
+
 async function handleLeaderboard(request: Request, env: Env): Promise<Response> {
   const list = await env.PROVIDERS.list({ prefix: "provider:" });
   const rows: any[] = [];
@@ -2641,6 +3040,10 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/internal/shill-template") {
       return handleShillTemplate(request, env);
+    }
+
+    if (request.method === "GET" && url.pathname === "/admin/playground") {
+      return handleAdminPlayground();
     }
 
     if (request.method === "GET" && url.pathname === "/llm.txt") {
