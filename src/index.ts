@@ -272,8 +272,17 @@ function confidenceLabel(value: unknown): "low" | "medium" | "high" {
 }
 
 function quickConfidenceReason(meta: any, cached = false): string {
-  if (meta?.degraded) return "This quick answer is degraded because provider context was incomplete.";
+  if (meta?.degraded) return "This quick answer is degraded because the provider was unavailable or returned an incomplete result.";
   return cached ? "Served from cache." : "Single-provider quick answer.";
+}
+
+function quickFailedModels(providerId: string, model: string, meta: any) {
+  if (!meta?.degraded) return [];
+  return [{
+    provider: providerId,
+    model,
+    error: typeof meta?.error === "string" ? meta.error : "Provider returned a degraded quick answer."
+  }];
 }
 
 function quickPanels(args: {
@@ -297,7 +306,9 @@ function quickPanels(args: {
         model: args.model,
         status: args.meta?.degraded ? "degraded" : "ok",
         response_time_ms: args.response_time_ms,
-        error: args.meta?.degraded ? "Provider returned a degraded quick answer." : null,
+        error: args.meta?.degraded
+          ? (typeof args.meta?.error === "string" ? args.meta.error : "Provider returned a degraded quick answer.")
+          : null,
         raw_answer: args.thought,
         display: {
           answer: args.thought,
@@ -1021,7 +1032,13 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
           : cached.provider_id
             ? [{ provider: cached.provider_id, model: cached.provider_meta?.model_hint || "unknown" }]
             : [],
-        models_failed: Array.isArray(cached.provider_meta?.failed_providers) ? cached.provider_meta.failed_providers : [],
+        models_failed: cachedMode === "consensus"
+          ? (Array.isArray(cached.provider_meta?.failed_providers) ? cached.provider_meta.failed_providers : [])
+          : quickFailedModels(
+              cached.provider_id,
+              cached.provider_meta?.model_hint || cached.provider_meta?.handler || "unknown",
+              cached.provider_meta ?? null
+            ),
         panels: cachedPanels,
         meta: cached.provider_meta ?? null
       });
@@ -1385,7 +1402,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     parent_thought_id: null,
     disclaimer,
     models_used: [{ provider: provider.id, model: quickMeta.model_hint }],
-    models_failed: [],
+    models_failed: quickFailedModels(provider.id, quickMeta.model_hint, quickMeta),
     panels: quickPanels({
       thought,
       confidence: responseConfidence,
