@@ -2295,16 +2295,17 @@ describe("HappyThoughts internal consensus", () => {
     }) as any;
 
     try {
+      const requestBody = {
+        prompt: "Give me a consensus answer",
+        specialty: "other/general",
+        buyer_wallet: "0xbuyer",
+        mode: "consensus"
+      };
       const res = await worker.fetch(
         new Request("https://test/think", {
           method: "POST",
           headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
-          body: JSON.stringify({
-            prompt: "Give me a consensus answer",
-            specialty: "other/general",
-            buyer_wallet: "0xbuyer",
-            mode: "consensus"
-          })
+          body: JSON.stringify(requestBody)
         }),
         env,
         {} as any
@@ -2324,6 +2325,41 @@ describe("HappyThoughts internal consensus", () => {
       expect(json.meta.failed_providers).toHaveLength(1);
       expect(json.meta.failed_providers[0].provider).toBe("mistral");
       expect(json.meta.structured.confidence).toBe("medium");
+      expect(json.panels.final_answer.text).toContain("Degraded blended final answer paragraph one");
+      expect(json.panels.final_answer.confidence).toBe("medium");
+      expect(json.panels.final_answer.confidence_reason).toMatch(/failed/i);
+      expect(json.panels.consensus_summary.agreement).toEqual(["Shared point one"]);
+      expect(json.panels.consensus_summary.disagreements).toEqual(["Caveat one"]);
+      expect(json.panels.model_answers).toHaveLength(3);
+      expect(json.panels.model_answers.find((item: any) => item.provider === "cerebras").display.key_points).toContain("Price the verify step");
+      expect(json.panels.model_answers.find((item: any) => item.provider === "google_gemma").display.bottom_line).toContain("Sell consensus");
+      expect(json.panels.model_answers.find((item: any) => item.provider === "mistral").status).toBe("failed");
+      expect(json.panels.synthesis.provider).toBe("google_gemini");
+      expect(json.panels.synthesis.model).toBe("gemini-2.5-flash");
+      expect(json.panels.synthesis.degraded).toBe(true);
+      expect(json.panels.synthesis.failed_steps).toHaveLength(1);
+
+      const cachedRes = await worker.fetch(
+        new Request("https://test/think", {
+          method: "POST",
+          headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+          body: JSON.stringify(requestBody)
+        }),
+        env,
+        {} as any
+      );
+      expect(cachedRes.status).toBe(200);
+      const cachedJson: any = await cachedRes.json();
+      expect(cachedJson.cached).toBe(true);
+      expect(cachedJson.panels.final_answer.text).toContain("Degraded blended final answer paragraph one");
+      expect(cachedJson.panels.consensus_summary.agreement).toEqual(["Shared point one"]);
+      expect(cachedJson.panels.model_answers).toHaveLength(3);
+      expect(cachedJson.panels.model_answers.find((item: any) => item.provider === "cerebras").display.key_points).toContain("Price the verify step");
+      expect(cachedJson.panels.model_answers.find((item: any) => item.provider === "mistral").status).toBe("failed");
+      expect(cachedJson.panels.synthesis.provider).toBe("google_gemini");
+      expect(cachedJson.panels.synthesis.model).toBe("gemini-2.5-flash");
+      expect(cachedJson.panels.synthesis.degraded).toBe(true);
+      expect(cachedJson.panels.synthesis.failed_steps).toHaveLength(1);
     } finally {
       globalThis.fetch = originalFetch;
     }
