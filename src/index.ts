@@ -262,6 +262,53 @@ function round2(v: number) {
   return Number(v.toFixed(2));
 }
 
+function confidenceLabel(value: unknown): "low" | "medium" | "high" {
+  if (value === "low" || value === "medium" || value === "high") return value;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return "medium";
+  if (n >= 0.75) return "high";
+  if (n >= 0.45) return "medium";
+  return "low";
+}
+
+function quickConfidenceReason(meta: any, cached = false): string {
+  if (meta?.degraded) return "This quick answer is degraded because provider context was incomplete.";
+  return cached ? "Served from cache." : "Single-provider quick answer.";
+}
+
+function quickPanels(args: {
+  thought: string;
+  confidence: "low" | "medium" | "high";
+  confidence_reason: string;
+  provider_id: string;
+  model: string;
+  response_time_ms: number;
+  meta: any;
+}) {
+  return {
+    final_answer: {
+      text: args.thought,
+      confidence: args.confidence,
+      confidence_reason: args.confidence_reason
+    },
+    model_answers: [
+      {
+        provider: args.provider_id,
+        model: args.model,
+        status: args.meta?.degraded ? "degraded" : "ok",
+        response_time_ms: args.response_time_ms,
+        error: args.meta?.degraded ? "Provider returned a degraded quick answer." : null,
+        raw_answer: args.thought,
+        display: {
+          answer: args.thought,
+          caveats: Array.isArray(args.meta?.caveats) ? args.meta.caveats : []
+        }
+      }
+    ],
+    synthesis: null
+  };
+}
+
 function generateProviderToken(): string {
   return `htp_${crypto.randomUUID().replace(/-/g, "")}`;
 }
@@ -890,6 +937,10 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       }
 
       const cachedMode = cached.provider_meta?.mode || "quick";
+      const cachedConfidence = confidenceLabel(thoughtRecord.confidence);
+      const cachedConfidenceReason = cached.provider_meta?.degraded
+        ? "This cached answer was generated in degraded mode."
+        : quickConfidenceReason(cached.provider_meta, true);
       const cachedPanels = cachedMode === "consensus"
         ? {
             final_answer: {
@@ -936,7 +987,15 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
               failed_steps: cached.provider_meta?.failed_providers || []
             }
           }
-        : null;
+        : quickPanels({
+            thought: cached.response,
+            confidence: cachedConfidence,
+            confidence_reason: cachedConfidenceReason,
+            provider_id: cached.provider_id,
+            model: cached.provider_meta?.model_hint || cached.provider_meta?.handler || "unknown",
+            response_time_ms,
+            meta: cached.provider_meta ?? null
+          });
 
       return ok({
         thought_id: cachedMode === "consensus" ? (cached.thought_id || thoughtId) : thoughtId,
@@ -948,10 +1007,12 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         specialty: cached.specialty || specialty,
         price_paid: cachedPrice,
         cached: true,
-        confidence: thoughtRecord.confidence,
-        confidence_reason: cached.provider_meta?.degraded
-          ? "This cached consensus answer was generated in fallback mode after one or more model steps failed."
-          : "Served from cache.",
+        confidence: cachedMode === "consensus" ? thoughtRecord.confidence : cachedConfidence,
+        confidence_reason: cachedMode === "consensus"
+          ? cached.provider_meta?.degraded
+            ? "This cached consensus answer was generated in fallback mode after one or more model steps failed."
+            : "Served from cache."
+          : cachedConfidenceReason,
         response_time_ms,
         parent_thought_id: thoughtRecord.parent_thought_id,
         disclaimer,
@@ -1204,6 +1265,13 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   );
   const thought = dispatchResult.answer;
   const confidence = dispatchResult.confidence;
+  const responseConfidence = confidenceLabel(confidence);
+  const quickMeta = {
+    ...(dispatchResult.meta ?? {}),
+    handler: dispatchResult.handler,
+    model_hint: dispatchResult.model_hint || dispatchResult.handler
+  };
+  const confidenceReason = quickConfidenceReason(quickMeta);
   const response_time_ms = dispatchResult.response_time_ms;
 
   const thoughtRecord = {
@@ -1222,7 +1290,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     confidence,
     response_time_ms,
     provider_score: score.happy_trail,
-    provider_meta: dispatchResult.meta ?? null,
+    provider_meta: quickMeta,
     revenue_split: {
       broker_wallet: env.PROFIT_WALLET,
       broker_amount: Number((price * 0.3).toFixed(4)),
@@ -1296,24 +1364,38 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     specialty,
     price_paid: price,
     confidence,
-    provider_meta: dispatchResult.meta ?? null,
+    provider_meta: quickMeta,
     created_at: thoughtRecord.timestamp
   };
   await env.CACHE.put(cacheKey, JSON.stringify(cacheRecord));
 
   return ok({
     thought_id: thoughtId,
+    answer_mode: "quick",
+    mode: "quick",
     thought,
     provider_id: provider.id,
     provider_score: score.happy_trail,
     specialty,
     price_paid: price,
     cached: false,
-    confidence,
+    confidence: responseConfidence,
+    confidence_reason: confidenceReason,
     response_time_ms,
     parent_thought_id: null,
     disclaimer,
-    meta: dispatchResult.meta ?? null
+    models_used: [{ provider: provider.id, model: quickMeta.model_hint }],
+    models_failed: [],
+    panels: quickPanels({
+      thought,
+      confidence: responseConfidence,
+      confidence_reason: confidenceReason,
+      provider_id: provider.id,
+      model: quickMeta.model_hint,
+      response_time_ms,
+      meta: quickMeta
+    }),
+    meta: quickMeta
   });
 }
 

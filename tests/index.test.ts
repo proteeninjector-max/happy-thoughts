@@ -104,9 +104,38 @@ describe("HappyThoughts Phase 2", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.thought_id).toMatch(/^ht_/);
+    expect(json.answer_mode).toBe("quick");
     expect(json.thought).toBeTruthy();
     expect(json.disclaimer).toBeTruthy();
-    expect(typeof json.confidence).toBe("number");
+    expect(["low", "medium", "high"]).toContain(json.confidence);
+    expect(json.confidence_reason).toBeTruthy();
+    expect(json.models_used).toEqual([{ provider: "prov_1", model: "internal://pi_signals" }]);
+    expect(json.models_failed).toEqual([]);
+    expect(json.panels.final_answer.text).toBe(json.thought);
+    expect(json.panels.final_answer.confidence).toBe(json.confidence);
+    expect(json.panels.model_answers).toHaveLength(1);
+    expect(json.panels.model_answers[0].display.answer).toBe(json.thought);
+    expect(json.panels.synthesis).toBeNull();
+
+    const cachedRes = await worker.fetch(
+      new Request("https://test/think", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-OWNER-KEY": "test-owner"
+        },
+        body
+      }),
+      env,
+      {} as any
+    );
+    expect(cachedRes.status).toBe(200);
+    const cachedJson: any = await cachedRes.json();
+    expect(cachedJson.cached).toBe(true);
+    expect(cachedJson.answer_mode).toBe("quick");
+    expect(cachedJson.panels.final_answer.text).toBe(cachedJson.thought);
+    expect(cachedJson.panels.model_answers[0].display.answer).toBe(cachedJson.thought);
+    expect(cachedJson.panels.synthesis).toBeNull();
   });
 
   it("POST /think missing prompt returns 400", async () => {
