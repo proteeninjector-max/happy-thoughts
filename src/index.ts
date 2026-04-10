@@ -320,6 +320,175 @@ function quickPanels(args: {
   };
 }
 
+type VerifiedAssessment = {
+  solid_points: string[];
+  uncertain_points: string[];
+  suspect_points: string[];
+  revised_answer: string;
+  confidence: "low" | "medium" | "high";
+  status: "verified_with_caveats" | "needs_review";
+};
+
+function trimText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+async function callOpenAICompatibleVerify(url: string, apiKey: string, model: string, prompt: string): Promise<string> {
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.1,
+      max_tokens: 900,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`${resp.status} ${text.slice(0, 300)}`);
+  const json: any = JSON.parse(text);
+  const answer = trimText(json?.choices?.[0]?.message?.content);
+  if (!answer) throw new Error("empty verifier response");
+  return answer;
+}
+
+async function callGoogleGenerateVerify(apiKey: string, model: string, prompt: string): Promise<string> {
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 1000
+        }
+      })
+    }
+  );
+
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`${resp.status} ${text.slice(0, 300)}`);
+  const json: any = JSON.parse(text);
+  const parts = json?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) throw new Error("missing verifier candidate parts");
+  const answer = parts
+    .filter((part: any) => !part?.thought)
+    .map((part: any) => trimText(part?.text))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  if (!answer) throw new Error("empty verifier response");
+  return answer;
+}
+
+function splitIntoClaims(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function parseVerifierList(section: string): string[] {
+  return section
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^[-*•]\s*/, "").trim())
+    .filter(Boolean);
+}
+
+function parseVerifiedAssessment(output: string, fallbackThought: string, fallbackConfidence: "low" | "medium" | "high"): VerifiedAssessment {
+  const normalized = output.replace(/\r\n/g, "\n").trim();
+  const solidMatch = normalized.match(/Solid Points:\s*([\s\S]*?)(?:\n\s*Uncertain Points:|$)/i);
+  const uncertainMatch = normalized.match(/Uncertain Points:\s*([\s\S]*?)(?:\n\s*Suspect Points:|$)/i);
+  const suspectMatch = normalized.match(/Suspect Points:\s*([\s\S]*?)(?:\n\s*Revised Answer:|$)/i);
+  const revisedMatch = normalized.match(/Revised Answer:\s*([\s\S]*?)(?:\n\s*Confidence:|$)/i);
+  const confidenceMatch = normalized.match(/Confidence:\s*(low|medium|high)/i);
+
+  return {
+    solid_points: solidMatch ? parseVerifierList(solidMatch[1]).slice(0, 4) : splitIntoClaims(fallbackThought).slice(0, 3),
+    uncertain_points: uncertainMatch ? parseVerifierList(uncertainMatch[1]).slice(0, 4) : [],
+    suspect_points: suspectMatch ? parseVerifierList(suspectMatch[1]).slice(0, 3) : [],
+    revised_answer: trimText(revisedMatch?.[1]) || fallbackThought,
+    confidence: (confidenceMatch?.[1]?.toLowerCase() as any) || fallbackConfidence,
+    status: "verified_with_caveats"
+  };
+}
+
+function buildVerificationPrompt(thought: string, specialty: string, disagreements: string[]): string {
+  const disagreementBlock = disagreements.length ? disagreements.map((x) => `- ${x}`).join("\n") : "- None material.";
+  return [
+    "You are the verification layer for Happy Thoughts.",
+    "Review the consensus answer and return a careful verification summary.",
+    "Do not invent citations. Do not claim certainty you do not have.",
+    "Use this exact structure:",
+    "Solid Points:",
+    "- bullets",
+    "Uncertain Points:",
+    "- bullets",
+    "Suspect Points:",
+    "- bullets (or '- None material.')",
+    "Revised Answer:",
+    "1-3 short paragraphs",
+    "Confidence: low|medium|high",
+    `Specialty: ${specialty}`,
+    "Consensus answer:",
+    thought,
+    "Consensus disagreements/caveats:",
+    disagreementBlock
+  ].join("\n\n");
+}
+
+async function runVerifiedAssessment(thought: string, specialty: string, consensusConfidence: "low" | "medium" | "high", disagreements: string[], env: Env): Promise<{ assessment: VerifiedAssessment; verifier: { provider: string; model: string } }> {
+  const prompt = buildVerificationPrompt(thought, specialty, disagreements);
+
+  if (env.GEMMA_AI_API_KEY) {
+    const model = env.GEMINI_SYNTHESIS_MODEL || "gemini-2.5-flash";
+    try {
+      const output = await callGoogleGenerateVerify(env.GEMMA_AI_API_KEY, model, prompt);
+      return {
+        assessment: parseVerifiedAssessment(output, thought, consensusConfidence),
+        verifier: { provider: "google_gemini", model }
+      };
+    } catch {}
+  }
+
+  if (env.MISTRAL_API_KEY) {
+    const model = env.MISTRAL_SYNTHESIS_MODEL || env.MISTRAL_MODEL || "mistral-small-latest";
+    try {
+      const output = await callOpenAICompatibleVerify("https://api.mistral.ai/v1/chat/completions", env.MISTRAL_API_KEY, model, prompt);
+      return {
+        assessment: parseVerifiedAssessment(output, thought, consensusConfidence),
+        verifier: { provider: "mistral", model }
+      };
+    } catch {}
+  }
+
+  const riskSensitive = /^(finance|trading|legal|medicine|engineering)\//.test(specialty);
+  const assessment: VerifiedAssessment = {
+    solid_points: splitIntoClaims(thought).slice(0, 3),
+    uncertain_points: [
+      ...disagreements.slice(0, 3),
+      ...(riskSensitive ? ["High-stakes domain: independent verification is still recommended."] : [])
+    ].slice(0, 3),
+    suspect_points: consensusConfidence === "low" ? ["Consensus confidence is low, so some claims may be overstated or incomplete."] : [],
+    revised_answer: thought,
+    confidence: consensusConfidence,
+    status: "verified_with_caveats"
+  };
+  return {
+    assessment,
+    verifier: { provider: "internal_lightweight", model: "heuristic-v1" }
+  };
+}
+
 function generateProviderToken(): string {
   return `htp_${crypto.randomUUID().replace(/-/g, "")}`;
 }
@@ -1123,15 +1292,16 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       confidence: "low" as const,
       raw_output: consensus.answers.filter((item) => item.answer).map((item) => item.answer).join("\n\n")
     };
-    const verification = buildVerifiedAssessment(
+    const { assessment: verification, verifier } = await runVerifiedAssessment(
       finalStructured.blended_answer,
       specialty,
       finalStructured.confidence,
-      finalStructured.disagreements
+      finalStructured.disagreements,
+      env
     );
     const confidenceReason = verification.uncertain_points.length
-      ? "Verified answer completed with caveats from the lightweight verification layer."
-      : "Verified answer completed with the current lightweight verification layer.";
+      ? `Verified answer completed with caveats from the ${verifier.provider} verification layer.`
+      : `Verified answer completed with the ${verifier.provider} verification layer.`;
 
     const lineageRecord = {
       verified_id: verifiedId,
@@ -1175,10 +1345,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         suspect_points: verification.suspect_points,
         revised_answer: verification.revised_answer,
         confidence: verification.confidence,
-        verifier: {
-          provider: "internal_lightweight",
-          model: "heuristic-v1"
-        }
+        verifier
       },
       panels: {
         final_answer: {
