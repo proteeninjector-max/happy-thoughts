@@ -428,11 +428,24 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
 
   if (successfulAnswers.length === 0) throw new Error("Consensus panel failed: no successful first responses");
 
-  const parsed_answers = successfulAnswers.map((item) => ({ ...item, parsed: parsePanelAnswer(item.answer || "") }));
+  const parsed_answers: Array<ProviderAnswer & { parsed?: StructuredPanelAnswer }> = [];
+  for (const item of successfulAnswers) {
+    try {
+      parsed_answers.push({ ...item, parsed: parsePanelAnswer(item.answer || "") });
+    } catch (err: any) {
+      const error = `panel parse failed: ${err?.message || String(err)}`;
+      item.ok = false;
+      item.error = error;
+      failedProviders.push({ provider: item.provider, model: item.model, error });
+    }
+  }
+
+  if (parsed_answers.length === 0) throw new Error("Consensus panel failed: no parseable first responses");
+
   const parsedPanelAnswers = parsed_answers.map((item) => item.parsed!).filter(Boolean);
   const normalized = normalizeConsensusInput(parsedPanelAnswers);
 
-  if (successfulAnswers.length === 1) {
+  if (parsed_answers.length === 1) {
     return {
       prompt,
       specialty,
@@ -449,7 +462,7 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
   const synthesisFailures = [...failedProviders];
 
   try {
-    const google = await tryGoogleSynthesis(prompt, specialty, normalized, env, googleSynthesisModel, synthesisFailures.length, successfulAnswers.length);
+    const google = await tryGoogleSynthesis(prompt, specialty, normalized, env, googleSynthesisModel, synthesisFailures.length, parsed_answers.length);
     return {
       prompt,
       specialty,
@@ -466,8 +479,8 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
   }
 
   try {
-    const mistralSynth = await tryMistralSynthesis(prompt, specialty, normalized, env, mistralSynthesisModel, synthesisFailures.length, successfulAnswers.length);
-    mistralSynth.structured = normalizeStructuredConfidence(mistralSynth.structured, successfulAnswers.length, synthesisFailures.length, true);
+    const mistralSynth = await tryMistralSynthesis(prompt, specialty, normalized, env, mistralSynthesisModel, synthesisFailures.length, parsed_answers.length);
+    mistralSynth.structured = normalizeStructuredConfidence(mistralSynth.structured, parsed_answers.length, synthesisFailures.length, true);
     return {
       prompt,
       specialty,

@@ -2016,6 +2016,138 @@ describe("HappyThoughts internal consensus", () => {
     }
   });
 
+  it("runConsensus treats malformed panel output as a provider failure", async () => {
+    const env = makeEnv();
+    env.CEREBRAS_API_KEY = "cerebras-test";
+    env.MISTRAL_API_KEY = "mistral-test";
+    env.GEMMA_AI_API_KEY = "google-test";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.cerebras.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Unstructured answer with no required headings." } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("api.mistral.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","The best validation path is a paid upgrade from cheap to consensus.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Test willingness to pay with a simple upgrade flow","","Caveats:","- None material.","","Bottom Line:","Ask users to pay for verification before building too much."].join("\n") } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("models/gemma-4-31b-it:generateContent")) {
+        return new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: ["Thesis:","Consensus matters when mistakes are expensive.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Focus on high-cost-of-error use cases","","Caveats:","- General prompts may not justify a premium","","Bottom Line:","Sell consensus where the downside of being wrong is visible."].join("\n") }] } }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.includes("models/gemini-2.5-flash:generateContent")) {
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: [
+              "Agreement:",
+              "- Shared point one",
+              "",
+              "Disagreements / Caveats:",
+              "- Cerebras panel answer could not be parsed.",
+              "",
+              "Blended Answer:",
+              "The usable panel answers still support a clear consensus response despite one malformed panel output.",
+              "This keeps the request available to the user while lowering confidence and reporting the failed provider.",
+              "",
+              "Confidence: high"
+            ].join("\n") }] } }]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const result = await runConsensus("test prompt", "other/general", env);
+      expect(result.degraded).toBe(true);
+      expect(result.failure_count).toBe(1);
+      expect(result.failed_providers).toHaveLength(1);
+      expect(result.failed_providers[0].provider).toBe("cerebras");
+      expect(result.failed_providers[0].error).toMatch(/panel parse failed/i);
+      expect(result.parsed_answers).toHaveLength(2);
+      expect(result.answers.find((item) => item.provider === "cerebras")?.ok).toBe(false);
+      expect(result.synthesis?.structured.blended_answer).toMatch(/usable panel answers/i);
+      expect(result.synthesis?.structured.confidence).toBe("medium");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("runConsensus treats malformed panel output as a provider failure", async () => {
+    const env = makeEnv();
+    env.CEREBRAS_API_KEY = "cerebras-test";
+    env.MISTRAL_API_KEY = "mistral-test";
+    env.GEMMA_AI_API_KEY = "google-test";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.cerebras.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "Unstructured answer with no required headings." } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("api.mistral.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","The best validation path is a paid upgrade from cheap to consensus.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Test willingness to pay with a simple upgrade flow","","Caveats:","- None material.","","Bottom Line:","Ask users to pay for verification before building too much."].join("\n") } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("models/gemma-4-31b-it:generateContent")) {
+        return new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: ["Thesis:","Consensus matters when mistakes are expensive.","","Key Points:","- Price the verify step","- Compare free and paid conversion","- Focus on high-cost-of-error use cases","","Caveats:","- General prompts may not justify a premium","","Bottom Line:","Sell consensus where the downside of being wrong is visible."].join("\n") }] } }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.includes("models/gemini-2.5-flash:generateContent")) {
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: [
+              "Agreement:",
+              "- Shared point one",
+              "",
+              "Disagreements / Caveats:",
+              "- Cerebras panel answer could not be parsed.",
+              "",
+              "Blended Answer:",
+              "The usable panel answers still support a clear consensus response despite one malformed panel output.",
+              "This keeps the request available to the user while lowering confidence and reporting the failed provider.",
+              "",
+              "Confidence: high"
+            ].join("\n") }] } }]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const result = await runConsensus("test prompt", "other/general", env);
+      expect(result.degraded).toBe(true);
+      expect(result.failure_count).toBe(1);
+      expect(result.failed_providers).toHaveLength(1);
+      expect(result.failed_providers[0].provider).toBe("cerebras");
+      expect(result.failed_providers[0].error).toMatch(/panel parse failed/i);
+      expect(result.parsed_answers).toHaveLength(2);
+      expect(result.answers.find((item) => item.provider === "cerebras")?.ok).toBe(false);
+      expect(result.synthesis?.structured.blended_answer).toMatch(/usable panel answers/i);
+      expect(result.synthesis?.structured.confidence).toBe("medium");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("runConsensus rejects malformed synthesis and falls back cleanly", async () => {
     const env = makeEnv();
     env.CEREBRAS_API_KEY = "cerebras-test";
