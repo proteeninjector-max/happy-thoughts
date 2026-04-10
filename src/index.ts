@@ -395,6 +395,43 @@ function isOwnerRequest(request: Request, env: Env): boolean {
   return request.headers.get(ownerHeader) === ownerKey;
 }
 
+function allowAdminUi(request: Request): boolean {
+  const host = new URL(request.url).hostname.toLowerCase();
+  return host.endsWith("workers.dev") || host === "localhost" || host === "127.0.0.1";
+}
+
+type PlanTier = "free" | "starter" | "builder" | "pro";
+type AnswerMode = "quick" | "consensus" | "verified";
+
+function resolvePlanTier(request: Request, body: any): PlanTier {
+  const headerPlan = request.headers.get("X-HT-PLAN")?.trim().toLowerCase();
+  const bodyPlan = typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
+  const plan = headerPlan || bodyPlan;
+  if (plan === "starter" || plan === "builder" || plan === "pro") return plan;
+  return "free";
+}
+
+function resolveAnswerMode(body: any, plan: PlanTier, isOwner: boolean): AnswerMode {
+  const rawMode = typeof body?.mode === "string" ? body.mode.trim().toLowerCase() : "";
+  if (rawMode === "verified") return "verified";
+  if (rawMode === "quick") return "quick";
+  if (rawMode === "consensus") return "consensus";
+  return plan === "free" && !isOwner ? "consensus" : "quick";
+}
+
+function upgradeCta(plan: PlanTier, target: "verified" | "paid_consensus" = "verified") {
+  return {
+    current_plan: plan,
+    target,
+    headline: target === "verified"
+      ? "Upgrade to Verified Answers"
+      : "Upgrade for higher limits",
+    message: target === "verified"
+      ? "Consensus helps you think. Verified answers help you trust."
+      : "Free consensus is capped. Upgrade for higher limits and stronger trust workflows."
+  };
+}
+
 function getOwnerHeaders(env: Env): HeadersInit {
   const ownerHeader = env.OWNER_KEY_HEADER || "X-OWNER-KEY";
   const ownerKey = env.OWNER_KEY;
@@ -822,7 +859,9 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
   const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
   const minConfidence = Number(body?.min_confidence ?? "0") || 0;
-  const mode = typeof body?.mode === "string" ? body.mode.trim().toLowerCase() : "quick";
+  const ownerRequest = isOwnerRequest(request, env);
+  const plan = resolvePlanTier(request, body);
+  const mode = resolveAnswerMode(body, plan, ownerRequest);
   let specialty = typeof body?.specialty === "string" ? body.specialty.trim() : "";
 
   if (!prompt) return badRequest("prompt is required");
@@ -840,12 +879,23 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     return badRequest("unknown specialty", { specialty });
   }
 
-  if (!["quick", "consensus"].includes(mode)) {
-    return badRequest("mode must be quick|consensus", { mode });
+  if (!["quick", "consensus", "verified"].includes(mode)) {
+    return badRequest("mode must be quick|consensus|verified", { mode });
+  }
+
+  if (mode === "verified" && plan === "free" && !ownerRequest) {
+    return jsonResponse({
+      error: "upgrade_required",
+      message: "Verified answers require a paid plan.",
+      answer_mode: "verified",
+      plan,
+      upgrade_cta: upgradeCta(plan, "verified")
+    }, 402);
   }
 
   const promptHash = await sha256Hex(normalizePrompt(prompt));
-  const cacheKey = `cache:${mode}:${promptHash}`;
+  const cacheModeKey = mode === "verified" ? "consensus" : mode;
+  const cacheKey = `cache:${cacheModeKey}:${promptHash}`;
   const forceFresh = Boolean(body?.force_fresh) || new URL(request.url).searchParams.get("fresh") === "1";
   const cachedRaw = forceFresh ? null : await env.CACHE.get(cacheKey);
 
@@ -1011,8 +1061,9 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
 
       return ok({
         thought_id: cachedMode === "consensus" ? (cached.thought_id || thoughtId) : thoughtId,
-        answer_mode: cachedMode,
-        mode: cachedMode,
+        answer_mode: cachedMode === "quick" && plan === "free" && !ownerRequest ? "consensus" : cachedMode,
+        mode: cachedMode === "quick" && plan === "free" && !ownerRequest ? "consensus" : cachedMode,
+        plan,
         thought: cached.response,
         provider_id: cached.provider_id,
         provider_score: cached.provider_score ?? null,
@@ -1041,9 +1092,20 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
               cached.provider_meta ?? null
             ),
         panels: cachedPanels,
-        meta: cached.provider_meta ?? null
+        meta: cached.provider_meta ?? null,
+        upgrade_cta: plan === "free" && !ownerRequest ? upgradeCta(plan, "verified") : null
       });
     }
+  }
+
+  if (mode === "verified") {
+    return jsonResponse({
+      error: "not_implemented",
+      message: "Verified answers are not implemented yet. The paid verification branch is scaffolded but not live.",
+      answer_mode: "verified",
+      plan,
+      upgrade_cta: upgradeCta(plan, "verified")
+    }, 501);
   }
 
   if (mode === "consensus") {
@@ -1161,6 +1223,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       thought_id: consensusId,
       answer_mode: "consensus",
       mode: "consensus",
+      plan,
       thought: finalStructured.blended_answer,
       specialty,
       price_paid: price,
@@ -1202,7 +1265,8 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         normalized: consensus.normalized,
         synthesis_model: consensus.synthesis?.model || null,
         synthesis_provider: consensus.synthesis?.provider || null
-      }
+      },
+      upgrade_cta: plan === "free" && !ownerRequest ? upgradeCta(plan, "verified") : null
     });
   }
 
