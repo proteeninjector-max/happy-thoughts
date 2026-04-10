@@ -896,6 +896,11 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   const promptHash = await sha256Hex(normalizePrompt(prompt));
   const cacheModeKey = mode === "verified" ? "consensus" : mode;
   const cacheKey = `cache:${cacheModeKey}:${promptHash}`;
+  const enforceFreeQuota = plan === "free" && !ownerRequest && mode === "consensus";
+  const usageBefore = enforceFreeQuota ? await getFreeConsensusUsage(env, buyerWallet) : 0;
+  if (enforceFreeQuota && usageBefore >= FREE_CONSENSUS_DAILY_LIMIT) {
+    return freeQuotaResponse(plan, usageBefore);
+  }
   const forceFresh = Boolean(body?.force_fresh) || new URL(request.url).searchParams.get("fresh") === "1";
   const cachedRaw = forceFresh ? null : await env.CACHE.get(cacheKey);
 
@@ -1059,11 +1064,13 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
             meta: cached.provider_meta ?? null
           });
 
+      const usageAfter = enforceFreeQuota ? await incrementFreeConsensusUsage(env, buyerWallet) : usageBefore;
       return ok({
         thought_id: cachedMode === "consensus" ? (cached.thought_id || thoughtId) : thoughtId,
         answer_mode: cachedMode === "quick" && plan === "free" && !ownerRequest ? "consensus" : cachedMode,
         mode: cachedMode === "quick" && plan === "free" && !ownerRequest ? "consensus" : cachedMode,
         plan,
+        usage: enforceFreeQuota ? { used: usageAfter, limit: FREE_CONSENSUS_DAILY_LIMIT, period: "day" } : null,
         thought: cached.response,
         provider_id: cached.provider_id,
         provider_score: cached.provider_score ?? null,
