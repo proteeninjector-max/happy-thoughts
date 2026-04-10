@@ -1106,13 +1106,132 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   }
 
   if (mode === "verified") {
-    return jsonResponse({
-      error: "not_implemented",
-      message: "Verified answers are not implemented yet. The paid verification branch is scaffolded but not live.",
+    const price = 0.05;
+    if (!isOwnerRequest(request, env)) {
+      const payment = await verifyX402Payment(request, env, price, "Happy Thoughts verified answer");
+      if (!payment.ok) return payment.response;
+    }
+
+    const started = Date.now();
+    const consensus = await runConsensus(prompt, specialty, env);
+    const verifiedId = `verified_${crypto.randomUUID()}`;
+    const disclaimer = getDomainDisclaimer(specialty);
+    const finalStructured = consensus.synthesis?.structured || {
+      agreement: [],
+      disagreements: consensus.failed_providers.map((item) => `${item.provider} failed: ${item.error}`),
+      blended_answer: consensus.answers.filter((item) => item.answer).map((item) => item.answer).join("\n\n"),
+      confidence: "low" as const,
+      raw_output: consensus.answers.filter((item) => item.answer).map((item) => item.answer).join("\n\n")
+    };
+    const verification = buildVerifiedAssessment(
+      finalStructured.blended_answer,
+      specialty,
+      finalStructured.confidence,
+      finalStructured.disagreements
+    );
+    const confidenceReason = verification.uncertain_points.length
+      ? "Verified answer completed with caveats from the lightweight verification layer."
+      : "Verified answer completed with the current lightweight verification layer.";
+
+    const lineageRecord = {
+      verified_id: verifiedId,
+      thought_id: verifiedId,
+      mode: "verified",
+      prompt_hash: promptHash,
+      prompt,
+      specialty,
+      created_at: new Date().toISOString(),
+      buyer_wallet: buyerWallet,
+      price_paid: price,
+      consensus,
+      verification,
+      final_answer: verification.revised_answer,
+      confidence: verification.confidence,
+      disclaimer
+    };
+
+    await env.THOUGHTS.put(`verified:${verifiedId}`, JSON.stringify(lineageRecord));
+
+    return ok({
+      thought_id: verifiedId,
       answer_mode: "verified",
+      mode: "verified",
       plan,
-      upgrade_cta: upgradeCta(plan, "verified")
-    }, 501);
+      thought: verification.revised_answer,
+      specialty,
+      price_paid: price,
+      cached: false,
+      confidence: verification.confidence,
+      confidence_reason: confidenceReason,
+      response_time_ms: Date.now() - started,
+      parent_thought_id: null,
+      disclaimer,
+      models_used: consensus.answers.filter((item) => item.ok).map((item) => ({ provider: item.provider, model: item.model })),
+      models_failed: consensus.failed_providers,
+      verification: {
+        status: verification.status,
+        solid_points: verification.solid_points,
+        uncertain_points: verification.uncertain_points,
+        suspect_points: verification.suspect_points,
+        revised_answer: verification.revised_answer,
+        confidence: verification.confidence,
+        verifier: {
+          provider: "internal_lightweight",
+          model: "heuristic-v1"
+        }
+      },
+      panels: {
+        final_answer: {
+          text: verification.revised_answer,
+          confidence: verification.confidence,
+          confidence_reason: confidenceReason
+        },
+        consensus_summary: {
+          agreement: finalStructured.agreement,
+          disagreements: finalStructured.disagreements,
+          normalized: consensus.normalized
+        },
+        model_answers: consensus.answers.map((item) => {
+          const parsed = consensus.parsed_answers.find((entry) => entry.provider === item.provider && entry.model === item.model)?.parsed;
+          return {
+            provider: item.provider,
+            model: item.model,
+            status: item.ok ? "ok" : "failed",
+            response_time_ms: item.response_time_ms,
+            error: item.error || null,
+            raw_answer: item.answer,
+            parsed: parsed || null,
+            display: parsed
+              ? {
+                  thesis: parsed.thesis,
+                  key_points: parsed.key_points,
+                  caveats: parsed.caveats,
+                  bottom_line: parsed.bottom_line
+                }
+              : null
+          };
+        }),
+        synthesis: {
+          provider: consensus.synthesis?.provider || null,
+          model: consensus.synthesis?.model || null,
+          degraded: consensus.degraded,
+          failure_count: consensus.failure_count,
+          failed_steps: consensus.failed_providers
+        }
+      },
+      meta: {
+        structured: finalStructured,
+        verification,
+        degraded: consensus.degraded,
+        failure_count: consensus.failure_count,
+        failed_providers: consensus.failed_providers,
+        providers: consensus.answers,
+        parsed_answers: consensus.parsed_answers,
+        normalized: consensus.normalized,
+        synthesis_model: consensus.synthesis?.model || null,
+        synthesis_provider: consensus.synthesis?.provider || null
+      }
+    });
   }
 
   if (mode === "consensus") {
