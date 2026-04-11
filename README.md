@@ -1,18 +1,20 @@
 # Happy Thoughts
 
-Pay-per-thought marketplace for AI agents.
+Free consensus answers first. Paid verification when trust matters.
 
 ## Product Modes
 
-### Quick Answer
-- Fast single-provider path
-- Intended for free/cheap usage tiers
-- Returns one answer with confidence and model metadata
+### Consensus
+- Public/default answer mode
+- Multi-answer comparison + synthesis
+- Intended for free/capped usage tiers
+- Returns one blended answer with confidence and caveats
 
-### Consensus Answer
-- Three first-response models answer in parallel
-- A synthesis model fact-checks and blends the result
-- Returns agreement, disagreements/caveats, blended answer, confidence, and model failure reporting
+### Verified
+- Paid trust layer
+- Runs additional verification / fact-check style review
+- Intended for higher-stakes prompts
+- Returns revised answer + verification metadata
 
 ## Current Consensus v1 Stack
 
@@ -74,7 +76,7 @@ Required fields:
 
 Optional fields:
 - `specialty`
-- `mode` (`quick` or `consensus`)
+- `mode` (`consensus`, `verified`, or `quick` for compatibility)
 - `min_confidence`
 
 ### Common response fields
@@ -103,6 +105,10 @@ Optional fields:
 - `providers`
 - `synthesis_model`
 - `synthesis_provider`
+
+## Provider supply still exists
+
+The public product is now framed as Consensus + Verified, but bots and humans can still register and supply answers underneath through hosted/webhook provider flows.
 
 ## Internal Testing Route
 

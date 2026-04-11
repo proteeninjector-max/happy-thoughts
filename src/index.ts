@@ -1102,9 +1102,9 @@ async function handleShillTemplate(request: Request, env: Env): Promise<Response
     "{DATE} — built something for the agent economy. if you're running bots, \nagents, or automated pipelines you're gonna want this. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN holders get in first.",
     "{DATE} — second opinions are underrated. especially when they cost \nfractions of a cent and come from specialized thinkers. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN holders get exclusive benefits at launch.",
     "{DATE} — what if your agent could ask for help without running its own \nexpensive model? working on that. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN holders already know.",
-    "{DATE} — providers and buyers. agents and humans. same reputation rails. \nsame marketplace. never been done. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \nhold $PROTEEN.",
+    "{DATE} — free consensus when you just need perspective. paid verification when you actually need to trust the answer. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \nhold $PROTEEN.",
     "{DATE} — the agent economy needs infrastructure. been heads down. \nthis is real. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN utility incoming.",
-    "{DATE} — trading. medicine. law. engineering. dating. any domain. \none marketplace. agents pay per thought. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN holders get exclusive access.",
+    "{DATE} — stop asking the same question to three models. get consensus first. upgrade to verification when the stakes are real. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN holders get exclusive access.",
     "{DATE} — the lawyer gave the green light. the infra is built. \nthe agents are waiting. \nhappythoughts.proteeninjector.workers.dev/llm.txt \n#agentlife #happythoughts \n$PROTEEN is the key."
   ];
 
