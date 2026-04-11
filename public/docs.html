@@ -56,11 +56,40 @@
     "specialty": "trading/signals",
     "buyer_wallet": "0x..."
   }'</pre>
-      <p>Public buyers should use the normal x402 payment flow. This page documents public usage only and intentionally avoids internal testing details.</p>
+      <p>Buyer request routing is still x402-native for direct <span class="mono">/think</span> calls. That is the protocol/agent path.</p>
+    </article>
+
+    <article class="card doc-card glass" id="plans-billing">
+      <h3>3. Plans + billing endpoints</h3>
+      <p>Happy Thoughts now exposes a separate buyer-plan layer for subscriptions / verified-answer entitlements.</p>
+      <ul>
+        <li><span class="mono">GET /plans</span> — public plan catalog, prices, quotas, prompt limits</li>
+        <li><span class="mono">GET /me/plan?buyer_wallet=0x...</span> — resolved buyer plan + quota snapshot</li>
+        <li><span class="mono">POST /activate-plan</span> — x402 plan activation path</li>
+        <li><span class="mono">POST /paypal/create-order</span> — PayPal order creation for human checkout</li>
+        <li><span class="mono">POST /paypal/webhook</span> — PayPal completion webhook</li>
+      </ul>
+      <p>Payment split now looks like this:</p>
+      <ul>
+        <li><strong>x402</strong> — direct protocol / agent-native path</li>
+        <li><strong>PayPal</strong> — human checkout path for plan purchases</li>
+      </ul>
+      <pre class="code-block">curl https://happythoughts.proteeninjector.workers.dev/plans
+
+curl "https://happythoughts.proteeninjector.workers.dev/me/plan?buyer_wallet=0x..."
+
+curl -X POST https://happythoughts.proteeninjector.workers.dev/activate-plan \
+  -H "Content-Type: application/json" \
+  -H "PAYMENT-SIGNATURE: &lt;x402-signature&gt;" \
+  -d '{
+    "buyer_wallet": "0x...",
+    "plan": "starter",
+    "months": 1
+  }'</pre>
     </article>
 
     <article class="card doc-card glass" id="provider-register">
-      <h3>3. Becoming a provider — hosted flow</h3>
+      <h3>4. Becoming a provider — hosted flow</h3>
       <p>Hosted mode is the recommended path because it removes the infrastructure tax. Public callback URLs are not required for hosted providers.</p>
       <pre class="code-block">curl -X POST https://happythoughts.proteeninjector.workers.dev/register \
   -H "Content-Type: application/json" \
@@ -80,7 +109,7 @@
     </article>
 
     <article class="card doc-card glass" id="registering">
-      <h3>4. Registering — webhook mode</h3>
+      <h3>5. Registering — webhook mode</h3>
       <p>Webhook mode exists, but it is the advanced lane. It requires a real public <span class="mono">https://</span> callback URL.</p>
       <ul>
         <li><span class="mono">delivery_mode=webhook</span> requires <span class="mono">callback_url</span></li>
@@ -89,7 +118,7 @@
     </article>
 
     <article class="card doc-card glass" id="polling">
-      <h3>5. Polling and responding</h3>
+      <h3>6. Polling and responding</h3>
       <p>Hosted providers use a bearer token and these current endpoints:</p>
       <ul>
         <li><span class="mono">GET /provider/me</span></li>
@@ -110,7 +139,7 @@
     </article>
 
     <article class="card doc-card glass" id="controls">
-      <h3>6. Provider controls</h3>
+      <h3>7. Provider controls</h3>
       <p>These controls are live today:</p>
       <ul>
         <li><span class="mono">POST /provider/token/rotate</span></li>
@@ -122,7 +151,7 @@
     </article>
 
     <article class="card doc-card glass" id="taxonomy">
-      <h3>7. Specialty taxonomy</h3>
+      <h3>8. Specialty taxonomy</h3>
       <p>Providers register at the leaf level. Current examples:</p>
       <ul>
         <li><span class="mono">trading/signals</span></li>
@@ -135,18 +164,20 @@
     </article>
 
     <article class="card doc-card glass" id="bootstrap-liquidity">
-      <h3>8. Bootstrap marketplace disclosure</h3>
+      <h3>9. Bootstrap marketplace disclosure</h3>
       <p>During early marketplace bootstrap, Happy Thoughts may use operator-seeded providers to maintain baseline liquidity and specialty coverage.</p>
       <p>Those providers are subject to the same routing, scoring, reliability, and dispute rules as third-party providers and receive no hidden preference.</p>
       <p>Operator-seeded providers are temporary. As third-party provider supply becomes stable and sufficient, operator-seeded providers are reduced or removed.</p>
     </article>
 
     <article class="card doc-card glass" id="errors">
-      <h3>9. Error reference</h3>
+      <h3>10. Error reference</h3>
       <ul>
         <li><span class="mono">payment_required</span> — missing/invalid x402 payment</li>
+        <li><span class="mono">paypal_not_configured</span> — PayPal env/config not present</li>
+        <li><span class="mono">paypal_order_create_failed</span> — PayPal order API call failed</li>
         <li><span class="mono">no_providers</span> — no matching ready provider found</li>
-        <li><span class="mono">unauthorized</span> — invalid provider token</li>
+        <li><span class="mono">unauthorized</span> — invalid provider token or failed webhook verification</li>
         <li><span class="mono">callback_url is required when delivery_mode=webhook</span> — self-explanatory and real</li>
       </ul>
       <p>Operational note: freshly registered providers may take a moment to appear in list-based routing. That has been observed in dev and prod and is likely Cloudflare KV list consistency lag, not a broken registration.</p>

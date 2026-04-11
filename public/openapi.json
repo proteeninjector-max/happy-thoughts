@@ -657,6 +657,159 @@
           }
         }
       }
+    },
+    "/plans": {
+      "get": {
+        "summary": "Get public buyer plan catalog",
+        "description": "Returns plan pricing, prompt limits, and verified-answer quotas.",
+        "operationId": "plans",
+        "responses": {
+          "200": {
+            "description": "Plan catalog"
+          }
+        }
+      }
+    },
+    "/me/plan": {
+      "get": {
+        "summary": "Get buyer plan and quota snapshot",
+        "description": "Resolve the current buyer plan and return free/verified usage snapshots.",
+        "operationId": "mePlan",
+        "parameters": [
+          {
+            "name": "buyer_wallet",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Buyer wallet address"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Buyer plan snapshot"
+          }
+        }
+      }
+    },
+    "/activate-plan": {
+      "post": {
+        "summary": "Activate a paid plan via x402",
+        "description": "Activates or extends a buyer plan using the x402 payment path.",
+        "operationId": "activatePlan",
+        "x-payment-required": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "buyer_wallet",
+                  "plan"
+                ],
+                "properties": {
+                  "buyer_wallet": {
+                    "type": "string"
+                  },
+                  "plan": {
+                    "type": "string",
+                    "enum": [
+                      "starter",
+                      "builder",
+                      "pro"
+                    ]
+                  },
+                  "months": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Plan activated"
+          },
+          "402": {
+            "description": "Payment required"
+          }
+        }
+      }
+    },
+    "/paypal/create-order": {
+      "post": {
+        "summary": "Create a PayPal plan checkout order",
+        "description": "Creates a PayPal order for human checkout of a paid plan.",
+        "operationId": "paypalCreateOrder",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "buyer_wallet",
+                  "plan",
+                  "return_url",
+                  "cancel_url"
+                ],
+                "properties": {
+                  "buyer_wallet": {
+                    "type": "string"
+                  },
+                  "plan": {
+                    "type": "string",
+                    "enum": [
+                      "starter",
+                      "builder",
+                      "pro"
+                    ]
+                  },
+                  "months": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12
+                  },
+                  "return_url": {
+                    "type": "string"
+                  },
+                  "cancel_url": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "PayPal order created"
+          },
+          "503": {
+            "description": "PayPal not configured"
+          }
+        }
+      }
+    },
+    "/paypal/webhook": {
+      "post": {
+        "summary": "Receive PayPal completion webhook",
+        "description": "Verifies PayPal webhook signatures and activates the matching buyer entitlement on completed payment.",
+        "operationId": "paypalWebhook",
+        "responses": {
+          "200": {
+            "description": "Webhook handled"
+          },
+          "401": {
+            "description": "Webhook verification failed"
+          }
+        }
+      }
     }
   },
   "components": {
