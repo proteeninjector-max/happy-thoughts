@@ -1979,6 +1979,78 @@ describe("HappyThoughts plan entitlements", () => {
     const stored = await env.BUYERS.get("entitlement:0x170992058429d3d52615fef70c1006f5e5d6467c");
     expect(stored).toBeTruthy();
   });
+
+  it("activates a paid plan through /activate-plan", async () => {
+    const env = makeEnv();
+    const res = await worker.fetch(
+      new Request("https://test/activate-plan", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-OWNER-KEY": "test-owner"
+        },
+        body: JSON.stringify({
+          buyer_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+          plan: "starter",
+          months: 2
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.status).toBe("activated");
+    expect(json.plan).toBe("starter");
+    expect(json.months).toBe(2);
+    expect(json.price_paid_usd).toBe(18);
+    expect(json.verified_quota_monthly).toBe(100);
+
+    const stored = JSON.parse(await env.BUYERS.get("entitlement:0x170992058429d3d52615fef70c1006f5e5d6467c") || "null");
+    expect(stored.plan).toBe("starter");
+    expect(stored.status).toBe("active");
+    expect(stored.source).toBe("owner_bypass");
+  });
+
+  it("extends an existing active plan from its current expiry", async () => {
+    const env = makeEnv();
+    const future = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
+    await env.BUYERS.put(
+      "entitlement:0x170992058429d3d52615fef70c1006f5e5d6467c",
+      JSON.stringify({
+        buyer_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+        plan: "starter",
+        status: "active",
+        starts_at: new Date().toISOString(),
+        ends_at: future,
+        granted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        source: "test"
+      })
+    );
+
+    const res = await worker.fetch(
+      new Request("https://test/activate-plan", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-OWNER-KEY": "test-owner"
+        },
+        body: JSON.stringify({
+          buyer_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+          plan: "starter",
+          months: 1
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(Date.parse(json.entitlement.ends_at)).toBeGreaterThan(Date.parse(future));
+  });
 });
 
 describe("HappyThoughts internal consensus", () => {

@@ -594,14 +594,15 @@ type UsageSnapshot = {
 type PlanConfig = {
   verifiedMonthlyLimit: number;
   promptCharLimit: number;
+  monthlyPriceUsd: number;
 };
 
 const FREE_CONSENSUS_DAILY_LIMIT = 3;
 const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
-  free: { verifiedMonthlyLimit: 0, promptCharLimit: 4000 },
-  starter: { verifiedMonthlyLimit: 100, promptCharLimit: 6000 },
-  builder: { verifiedMonthlyLimit: 300, promptCharLimit: 12000 },
-  pro: { verifiedMonthlyLimit: 1000, promptCharLimit: 24000 }
+  free: { verifiedMonthlyLimit: 0, promptCharLimit: 4000, monthlyPriceUsd: 0 },
+  starter: { verifiedMonthlyLimit: 100, promptCharLimit: 6000, monthlyPriceUsd: 9 },
+  builder: { verifiedMonthlyLimit: 300, promptCharLimit: 12000, monthlyPriceUsd: 19 },
+  pro: { verifiedMonthlyLimit: 1000, promptCharLimit: 24000, monthlyPriceUsd: 49 }
 };
 
 function isPlanTier(value: unknown): value is PlanTier {
@@ -1939,6 +1940,81 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       meta: quickMeta
     }),
     meta: quickMeta
+  });
+}
+
+function addMonthsIso(baseMs: number, months: number): string {
+  const d = new Date(baseMs);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString();
+}
+
+async function handleActivatePlan(request: Request, env: Env): Promise<Response> {
+  let body: any;
+  try {
+    body = await request.clone().json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
+  if (!isValidWallet(buyerWallet)) return badRequest("buyer_wallet must be a valid EVM address");
+
+  const rawPlan = typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
+  if (!isPlanTier(rawPlan) || rawPlan === "free") return badRequest("plan must be starter|builder|pro");
+
+  const months = Number(body?.months ?? 1);
+  if (!Number.isInteger(months) || months < 1 || months > 12) {
+    return badRequest("months must be an integer between 1 and 12");
+  }
+
+  const config = getPlanConfig(rawPlan);
+  const price = Number((config.monthlyPriceUsd * months).toFixed(2));
+  const payment = await verifyX402Payment(request, env, price, `Happy Thoughts ${rawPlan} plan activation`);
+  if (!payment.ok) return payment.response;
+
+  const existing = await getBuyerEntitlement(env, buyerWallet);
+  const now = Date.now();
+  const anchorMs = existing?.ends_at ? Math.max(Date.parse(existing.ends_at) || now, now) : now;
+  const startsAt = existing?.ends_at && Date.parse(existing.ends_at) > now
+    ? new Date(Date.parse(existing.ends_at)).toISOString()
+    : new Date(now).toISOString();
+  const endsAt = addMonthsIso(anchorMs, months);
+  const nowIso = new Date(now).toISOString();
+
+  const record: PlanEntitlementRecord = {
+    buyer_wallet: buyerWallet,
+    plan: rawPlan,
+    status: "active",
+    source: payment.bypassed ? "owner_bypass" : "x402",
+    starts_at: startsAt,
+    ends_at: endsAt,
+    granted_at: nowIso,
+    updated_at: nowIso,
+    granted_by: payment.payer || null
+  };
+
+  await env.BUYERS.put(buyerEntitlementKey(buyerWallet), JSON.stringify(record));
+  await env.BUYERS.put(`plan-purchase:${buyerWallet.toLowerCase()}:${now}`, JSON.stringify({
+    buyer_wallet: buyerWallet,
+    plan: rawPlan,
+    months,
+    price_paid_usd: price,
+    activated_at: nowIso,
+    payer: payment.payer,
+    bypassed: payment.bypassed,
+    source: record.source,
+    ends_at: endsAt
+  }));
+
+  return ok({
+    status: "activated",
+    buyer_wallet: buyerWallet,
+    plan: rawPlan,
+    months,
+    price_paid_usd: price,
+    entitlement: record,
+    verified_quota_monthly: config.verifiedMonthlyLimit
   });
 }
 
@@ -3707,6 +3783,8 @@ export default {
         return handleRefund(request, env);
       case "POST /bundle":
         return handleCreateBundle(request, env);
+      case "POST /activate-plan":
+        return handleActivatePlan(request, env);
       case "POST /internal/think":
         return handleInternalThink(request, env);
       case "POST /internal/consensus":
