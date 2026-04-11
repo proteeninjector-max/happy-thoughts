@@ -2089,6 +2089,72 @@ describe("HappyThoughts plan entitlements", () => {
     expect(json.quotas.verified_monthly).toMatchObject({ used: 7, limit: 300, remaining: 293, period: "month" });
     expect(json.plan_catalog.price_usd_monthly).toBe(19);
   });
+
+  it("creates a paypal order scaffold for plan checkout", async () => {
+    const env = {
+      ...makeEnv(),
+      PAYPAL_CLIENT_ID: "paypal-client-id"
+    } as any;
+
+    const res = await worker.fetch(new Request("https://test/paypal/create-order", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        buyer_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+        plan: "pro",
+        months: 2,
+        return_url: "https://example.com/return",
+        cancel_url: "https://example.com/cancel"
+      })
+    }), env, {} as any);
+
+    expect(res.status).toBe(201);
+    const json: any = await res.json();
+    expect(json.provider).toBe("paypal");
+    expect(json.plan).toBe("pro");
+    expect(json.price_usd).toBe(98);
+    expect(json.approval_url).toContain("paypal_order_id=");
+  });
+
+  it("paypal webhook activates entitlement once order completes", async () => {
+    const env = {
+      ...makeEnv(),
+      PAYPAL_CLIENT_ID: "paypal-client-id",
+      PAYPAL_WEBHOOK_ID: "wh_test"
+    } as any;
+
+    await env.BUYERS.put("paypal-order:pp_order_test", JSON.stringify({
+      order_id: "pp_order_test",
+      buyer_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+      plan: "starter",
+      months: 1,
+      price_usd: 9,
+      status: "created",
+      provider: "paypal"
+    }));
+
+    const res = await worker.fetch(new Request("https://test/paypal/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-paypal-test": "ok"
+      },
+      body: JSON.stringify({
+        event_type: "PAYMENT.CAPTURE.COMPLETED",
+        resource: { id: "pp_order_test" }
+      })
+    }), env, {} as any);
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.status).toBe("activated");
+    expect(json.provider).toBe("paypal");
+    expect(json.plan).toBe("starter");
+
+    const stored = JSON.parse(await env.BUYERS.get("entitlement:0x170992058429d3d52615fef70c1006f5e5d6467c") || "null");
+    expect(stored.plan).toBe("starter");
+    expect(stored.source).toBe("paypal");
+  });
 });
 
 describe("HappyThoughts internal consensus", () => {

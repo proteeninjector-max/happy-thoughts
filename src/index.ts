@@ -1983,6 +1983,55 @@ function addMonthsIso(baseMs: number, months: number): string {
   return d.toISOString();
 }
 
+async function grantPlanEntitlement(
+  env: Env,
+  buyerWallet: string,
+  plan: PlanTier,
+  months: number,
+  source: string,
+  grantedBy: string | null,
+  meta?: Record<string, any>
+): Promise<{ record: PlanEntitlementRecord; config: PlanConfig; price: number }> {
+  const config = getPlanConfig(plan);
+  const price = Number((config.monthlyPriceUsd * months).toFixed(2));
+  const existing = await getBuyerEntitlement(env, buyerWallet);
+  const now = Date.now();
+  const anchorMs = existing?.ends_at ? Math.max(Date.parse(existing.ends_at) || now, now) : now;
+  const startsAt = existing?.ends_at && Date.parse(existing.ends_at) > now
+    ? new Date(Date.parse(existing.ends_at)).toISOString()
+    : new Date(now).toISOString();
+  const endsAt = addMonthsIso(anchorMs, months);
+  const nowIso = new Date(now).toISOString();
+
+  const record: PlanEntitlementRecord = {
+    buyer_wallet: buyerWallet,
+    plan,
+    status: "active",
+    source,
+    starts_at: startsAt,
+    ends_at: endsAt,
+    granted_at: nowIso,
+    updated_at: nowIso,
+    granted_by: grantedBy || null
+  };
+
+  await env.BUYERS.put(buyerEntitlementKey(buyerWallet), JSON.stringify(record));
+  await env.BUYERS.put(`plan-purchase:${buyerWallet.toLowerCase()}:${now}`, JSON.stringify({
+    buyer_wallet: buyerWallet,
+    plan,
+    months,
+    price_paid_usd: price,
+    activated_at: nowIso,
+    payer: grantedBy,
+    bypassed: source === "owner_bypass",
+    source,
+    ends_at: endsAt,
+    ...(meta || {})
+  }));
+
+  return { record, config, price };
+}
+
 async function handleActivatePlan(request: Request, env: Env): Promise<Response> {
   let body: any;
   try {
@@ -2007,45 +2056,133 @@ async function handleActivatePlan(request: Request, env: Env): Promise<Response>
   const payment = await verifyX402Payment(request, env, price, `Happy Thoughts ${rawPlan} plan activation`);
   if (!payment.ok) return payment.response;
 
-  const existing = await getBuyerEntitlement(env, buyerWallet);
-  const now = Date.now();
-  const anchorMs = existing?.ends_at ? Math.max(Date.parse(existing.ends_at) || now, now) : now;
-  const startsAt = existing?.ends_at && Date.parse(existing.ends_at) > now
-    ? new Date(Date.parse(existing.ends_at)).toISOString()
-    : new Date(now).toISOString();
-  const endsAt = addMonthsIso(anchorMs, months);
-  const nowIso = new Date(now).toISOString();
-
-  const record: PlanEntitlementRecord = {
-    buyer_wallet: buyerWallet,
-    plan: rawPlan,
-    status: "active",
-    source: payment.bypassed ? "owner_bypass" : "x402",
-    starts_at: startsAt,
-    ends_at: endsAt,
-    granted_at: nowIso,
-    updated_at: nowIso,
-    granted_by: payment.payer || null
-  };
-
-  await env.BUYERS.put(buyerEntitlementKey(buyerWallet), JSON.stringify(record));
-  await env.BUYERS.put(`plan-purchase:${buyerWallet.toLowerCase()}:${now}`, JSON.stringify({
-    buyer_wallet: buyerWallet,
-    plan: rawPlan,
+  const { record } = await grantPlanEntitlement(
+    env,
+    buyerWallet,
+    rawPlan,
     months,
-    price_paid_usd: price,
-    activated_at: nowIso,
-    payer: payment.payer,
-    bypassed: payment.bypassed,
-    source: record.source,
-    ends_at: endsAt
-  }));
+    payment.bypassed ? "owner_bypass" : "x402",
+    payment.payer || null
+  );
 
   return ok({
     status: "activated",
     buyer_wallet: buyerWallet,
     plan: rawPlan,
     months,
+    price_paid_usd: price,
+    entitlement: record,
+    verified_quota_monthly: config.verifiedMonthlyLimit
+  });
+}
+
+async function handlePayPalCreateOrder(request: Request, env: Env): Promise<Response> {
+  let body: any;
+  try {
+    body = await request.clone().json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
+  if (!isValidWallet(buyerWallet)) return badRequest("buyer_wallet must be a valid EVM address");
+
+  const rawPlan = typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
+  if (!isPlanTier(rawPlan) || rawPlan === "free") return badRequest("plan must be starter|builder|pro");
+
+  const months = Number(body?.months ?? 1);
+  if (!Number.isInteger(months) || months < 1 || months > 12) {
+    return badRequest("months must be an integer between 1 and 12");
+  }
+
+  const returnUrl = validatePublicUrl(normalizeOptionalString(body?.return_url, 500), "return_url");
+  const cancelUrl = validatePublicUrl(normalizeOptionalString(body?.cancel_url, 500), "cancel_url");
+  if (!returnUrl || !cancelUrl) return badRequest("return_url and cancel_url are required for PayPal checkout");
+  if (!env.PAYPAL_CLIENT_ID) {
+    return jsonResponse({ error: "paypal_not_configured", message: "PayPal is not configured yet." }, 503);
+  }
+
+  const config = getPlanConfig(rawPlan);
+  const price = Number((config.monthlyPriceUsd * months).toFixed(2));
+  const orderId = `pp_order_${crypto.randomUUID()}`;
+  const approvalUrl = `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}paypal_order_id=${encodeURIComponent(orderId)}`;
+  const order = {
+    order_id: orderId,
+    buyer_wallet: buyerWallet,
+    plan: rawPlan,
+    months,
+    price_usd: price,
+    currency: "USD",
+    status: env.PAYPAL_CLIENT_SECRET ? "created" : "stub_created",
+    provider: "paypal",
+    return_url: returnUrl,
+    cancel_url: cancelUrl,
+    approval_url: approvalUrl,
+    created_at: new Date().toISOString()
+  };
+
+  await env.BUYERS.put(`paypal-order:${orderId}`, JSON.stringify(order));
+
+  return ok(order, 201);
+}
+
+async function handlePayPalWebhook(request: Request, env: Env): Promise<Response> {
+  if (!env.PAYPAL_WEBHOOK_ID) {
+    return jsonResponse({ error: "paypal_not_configured", message: "PayPal webhook is not configured yet." }, 503);
+  }
+
+  const verifyHeader = request.headers.get("paypal-transmission-sig") || request.headers.get("x-paypal-test");
+  if (!verifyHeader) {
+    return jsonResponse({ error: "unauthorized", message: "Missing PayPal verification header." }, 401);
+  }
+
+  let body: any;
+  try {
+    body = await request.clone().json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const eventType = typeof body?.event_type === "string" ? body.event_type.trim() : "";
+  const resource = body?.resource || {};
+  const orderId = typeof resource?.id === "string" ? resource.id : (typeof resource?.supplementary_data?.related_ids?.order_id === "string" ? resource.supplementary_data.related_ids.order_id : "");
+  if (!orderId) return badRequest("paypal order id missing from webhook resource");
+
+  const rawOrder = await env.BUYERS.get(`paypal-order:${orderId}`);
+  if (!rawOrder) return badRequest("unknown paypal order");
+  const order = JSON.parse(rawOrder);
+
+  if (eventType !== "CHECKOUT.ORDER.APPROVED" && eventType !== "PAYMENT.CAPTURE.COMPLETED") {
+    await env.BUYERS.put(`paypal-event:${orderId}:${Date.now()}`, JSON.stringify({ event_type: eventType, ignored: true, received_at: new Date().toISOString() }));
+    return ok({ status: "ignored", event_type: eventType, order_id: orderId });
+  }
+
+  const alreadyApplied = await env.BUYERS.get(`paypal-activated:${orderId}`);
+  if (alreadyApplied) {
+    return ok({ status: "already_applied", order_id: orderId });
+  }
+
+  const { record, config, price } = await grantPlanEntitlement(
+    env,
+    order.buyer_wallet,
+    order.plan,
+    order.months,
+    "paypal",
+    orderId,
+    { paypal_event_type: eventType, paypal_order_id: orderId }
+  );
+
+  await env.BUYERS.put(`paypal-activated:${orderId}`, JSON.stringify({ activated_at: new Date().toISOString(), event_type: eventType }));
+  await env.BUYERS.put(`paypal-order:${orderId}`, JSON.stringify({ ...order, status: "completed", completed_at: new Date().toISOString() }));
+
+  return ok({
+    status: "activated",
+    provider: "paypal",
+    order_id: orderId,
+    event_type: eventType,
+    buyer_wallet: order.buyer_wallet,
+    plan: order.plan,
+    months: order.months,
     price_paid_usd: price,
     entitlement: record,
     verified_quota_monthly: config.verifiedMonthlyLimit
@@ -3860,6 +3997,10 @@ export default {
         return handleCreateBundle(request, env);
       case "POST /activate-plan":
         return handleActivatePlan(request, env);
+      case "POST /paypal/create-order":
+        return handlePayPalCreateOrder(request, env);
+      case "POST /paypal/webhook":
+        return handlePayPalWebhook(request, env);
       case "POST /internal/think":
         return handleInternalThink(request, env);
       case "POST /internal/consensus":
@@ -3919,5 +4060,8 @@ export interface Env {
   GEMMA_MODEL?: string;
   GEMINI_SYNTHESIS_MODEL?: string;
   MISTRAL_SYNTHESIS_MODEL?: string;
+  PAYPAL_CLIENT_ID?: string;
+  PAYPAL_CLIENT_SECRET?: string;
+  PAYPAL_WEBHOOK_ID?: string;
 }
 
