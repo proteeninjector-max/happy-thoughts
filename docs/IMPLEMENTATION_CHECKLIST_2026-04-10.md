@@ -3,56 +3,56 @@
 Date: 2026-04-10
 
 ## A. Product / plan primitives
-- [ ] Add plan enum: free, starter, builder, pro
-- [ ] Add plan-based request budget class
-- [ ] Add per-plan limits:
-  - [ ] daily/monthly request caps
-  - [ ] max prompt chars
+- [x] Add plan enum: free, starter, builder, pro
+- [x] Add plan-based request budget class
+- [x] Add per-plan limits:
+  - [x] daily/monthly request caps
+  - [x] max prompt chars
   - [ ] max model output tokens
-  - [ ] verification enabled/disabled
+  - [x] verification enabled/disabled
   - [ ] model tier allowed
 
 ## B. Free consensus path
-- [ ] Make free consensus the canonical free public flow
-- [ ] Keep current free/cheap panel on free route:
-  - [ ] Mistral
-  - [ ] Cerebras
-  - [ ] Gemma
-- [ ] Keep synthesis on free/cheap lane for free plan
+- [x] Make free consensus the canonical free public flow
+- [x] Keep current free/cheap panel on free route:
+  - [x] Mistral
+  - [x] Cerebras
+  - [x] Gemma
+- [x] Keep synthesis on free/cheap lane for free plan
 - [ ] Add free-tier caps:
-  - [ ] prompt length
+  - [x] prompt length
   - [ ] R1 output caps
   - [ ] synthesis output cap
-- [ ] Add daily free usage tracking per user/account
+- [x] Add daily free usage tracking per user/account
 
 ## C. Verified answer path
 - [ ] Build claim extraction step from consensus output
-- [ ] Build verification pass prompt
-- [ ] Return structured verification object:
-  - [ ] solid points
-  - [ ] uncertain points
-  - [ ] suspect points
-  - [ ] revised answer
-  - [ ] verification confidence
-- [ ] Gate verification to paid plans
+- [x] Build verification pass prompt
+- [x] Return structured verification object:
+  - [x] solid points
+  - [x] uncertain points
+  - [x] suspect points
+  - [x] revised answer
+  - [x] verification confidence
+- [x] Gate verification to paid plans
 
 ## D. Model routing / budget classes
 - [ ] Introduce routing config by tier:
-  - [ ] free consensus models
-  - [ ] starter verification model
+  - [x] free consensus models
+  - [x] starter verification model
   - [ ] builder verification model
   - [ ] pro verification model
-- [ ] Make model choices env-configurable
-- [ ] Make free-first default for non-premium flows
+- [x] Make model choices env-configurable
+- [x] Make free-first default for non-premium flows
 - [ ] Apply same free-first policy to remaining helper paths if needed
 
 ## E. Billing / usage
-- [ ] Add subscription-aware usage counters
-- [ ] Add verified-answer monthly quota tracking
+- [x] Add subscription-aware usage counters
+- [x] Add verified-answer monthly quota tracking
 - [ ] Optional later: add overage credits
-- [ ] Add graceful downgrade after quota exhaustion:
+- [x] Add graceful downgrade after quota exhaustion:
   - [ ] fallback to free consensus
-  - [ ] show upgrade/paywall message
+  - [x] show upgrade/paywall message
 
 ## F. Cost control
 - [ ] Enforce max prompt chars by plan
@@ -76,8 +76,8 @@ Date: 2026-04-10
   - [ ] alerting before outage
 
 ## H. UX
-- [ ] Rename user-facing modes to Consensus and Verified
-- [ ] Add upgrade CTA after free answer
+- [x] Rename user-facing modes to Consensus and Verified
+- [x] Add upgrade CTA after free answer
 - [ ] Add disagreement-triggered upgrade CTA
 - [ ] Add risk-domain upsell copy for finance / legal / medical / engineering
 

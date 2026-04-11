@@ -1,5 +1,9 @@
 # Happy Thoughts — Phase 2 Build Order (MVP Only)
 
+> Historical planning doc from the earlier marketplace-first build sequence.
+> Keep for context, but do not treat it as current product strategy.
+> Current strategy is free Consensus + paid Verified.
+
 > Canonical root: `HappyThoughts/`
 > Continue from current codebase (Phase 1 scaffold in place).
 
