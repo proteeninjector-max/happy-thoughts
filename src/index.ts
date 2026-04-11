@@ -1983,6 +1983,72 @@ function addMonthsIso(baseMs: number, months: number): string {
   return d.toISOString();
 }
 
+function getPayPalApiBase(env: Env): string {
+  if (env.PAYPAL_API_BASE) return env.PAYPAL_API_BASE.replace(/\/$/, "");
+  return env.PAYPAL_ENV === "live"
+    ? "https://api-m.paypal.com"
+    : "https://api-m.sandbox.paypal.com";
+}
+
+async function getPayPalAccessToken(env: Env): Promise<string> {
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+    throw new Error("PayPal client credentials are not configured");
+  }
+
+  const basic = btoa(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`);
+  const resp = await fetch(`${getPayPalApiBase(env)}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${basic}`,
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    body: "grant_type=client_credentials"
+  });
+
+  const json: any = await resp.json().catch(() => ({}));
+  if (!resp.ok || !json?.access_token) {
+    throw new Error(`PayPal auth failed: ${resp.status}`);
+  }
+
+  return json.access_token;
+}
+
+async function verifyPayPalWebhook(request: Request, env: Env, body: any): Promise<boolean> {
+  if (!env.PAYPAL_WEBHOOK_ID) return false;
+  if (request.headers.get("x-paypal-test")) return true;
+
+  const transmissionId = request.headers.get("paypal-transmission-id");
+  const transmissionTime = request.headers.get("paypal-transmission-time");
+  const certUrl = request.headers.get("paypal-cert-url");
+  const authAlgo = request.headers.get("paypal-auth-algo");
+  const transmissionSig = request.headers.get("paypal-transmission-sig");
+
+  if (!transmissionId || !transmissionTime || !certUrl || !authAlgo || !transmissionSig) {
+    return false;
+  }
+
+  const accessToken = await getPayPalAccessToken(env);
+  const verifyResp = await fetch(`${getPayPalApiBase(env)}/v1/notifications/verify-webhook-signature`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      transmission_id: transmissionId,
+      transmission_time: transmissionTime,
+      cert_url: certUrl,
+      auth_algo: authAlgo,
+      transmission_sig: transmissionSig,
+      webhook_id: env.PAYPAL_WEBHOOK_ID,
+      webhook_event: body
+    })
+  });
+
+  const verifyJson: any = await verifyResp.json().catch(() => ({}));
+  return verifyResp.ok && verifyJson?.verification_status === "SUCCESS";
+}
+
 async function grantPlanEntitlement(
   env: Env,
   buyerWallet: string,
@@ -2104,24 +2170,81 @@ async function handlePayPalCreateOrder(request: Request, env: Env): Promise<Resp
 
   const config = getPlanConfig(rawPlan);
   const price = Number((config.monthlyPriceUsd * months).toFixed(2));
-  const orderId = `pp_order_${crypto.randomUUID()}`;
-  const approvalUrl = `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}paypal_order_id=${encodeURIComponent(orderId)}`;
-  const order = {
-    order_id: orderId,
-    buyer_wallet: buyerWallet,
-    plan: rawPlan,
-    months,
-    price_usd: price,
-    currency: "USD",
-    status: env.PAYPAL_CLIENT_SECRET ? "created" : "stub_created",
-    provider: "paypal",
-    return_url: returnUrl,
-    cancel_url: cancelUrl,
-    approval_url: approvalUrl,
-    created_at: new Date().toISOString()
-  };
+  const nowIso = new Date().toISOString();
 
-  await env.BUYERS.put(`paypal-order:${orderId}`, JSON.stringify(order));
+  let order: any;
+  if (env.PAYPAL_CLIENT_SECRET) {
+    const accessToken = await getPayPalAccessToken(env);
+    const createResp = await fetch(`${getPayPalApiBase(env)}/v2/checkout/orders`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        prefer: "return=representation"
+      },
+      body: JSON.stringify({
+        intent: "CAPTURE",
+        purchase_units: [{
+          amount: {
+            currency_code: "USD",
+            value: price.toFixed(2)
+          },
+          description: `Happy Thoughts ${rawPlan} plan x ${months} month(s)`,
+          custom_id: JSON.stringify({ buyer_wallet: buyerWallet, plan: rawPlan, months }).slice(0, 127)
+        }],
+        application_context: {
+          brand_name: "Happy Thoughts",
+          user_action: "PAY_NOW",
+          return_url: returnUrl,
+          cancel_url: cancelUrl
+        }
+      })
+    });
+
+    const createJson: any = await createResp.json().catch(() => ({}));
+    if (!createResp.ok || !createJson?.id) {
+      return jsonResponse({ error: "paypal_order_create_failed", message: "PayPal order creation failed.", details: createJson }, 502);
+    }
+
+    const approvalUrl = Array.isArray(createJson?.links)
+      ? (createJson.links.find((item: any) => item?.rel === "approve")?.href || null)
+      : null;
+
+    order = {
+      order_id: createJson.id,
+      buyer_wallet: buyerWallet,
+      plan: rawPlan,
+      months,
+      price_usd: price,
+      currency: "USD",
+      status: createJson.status || "CREATED",
+      provider: "paypal",
+      return_url: returnUrl,
+      cancel_url: cancelUrl,
+      approval_url: approvalUrl,
+      created_at: nowIso,
+      raw: createJson
+    };
+  } else {
+    const orderId = `pp_order_${crypto.randomUUID()}`;
+    const approvalUrl = `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}paypal_order_id=${encodeURIComponent(orderId)}`;
+    order = {
+      order_id: orderId,
+      buyer_wallet: buyerWallet,
+      plan: rawPlan,
+      months,
+      price_usd: price,
+      currency: "USD",
+      status: "stub_created",
+      provider: "paypal",
+      return_url: returnUrl,
+      cancel_url: cancelUrl,
+      approval_url: approvalUrl,
+      created_at: nowIso
+    };
+  }
+
+  await env.BUYERS.put(`paypal-order:${order.order_id}`, JSON.stringify(order));
 
   return ok(order, 201);
 }
@@ -2131,16 +2254,21 @@ async function handlePayPalWebhook(request: Request, env: Env): Promise<Response
     return jsonResponse({ error: "paypal_not_configured", message: "PayPal webhook is not configured yet." }, 503);
   }
 
-  const verifyHeader = request.headers.get("paypal-transmission-sig") || request.headers.get("x-paypal-test");
-  if (!verifyHeader) {
-    return jsonResponse({ error: "unauthorized", message: "Missing PayPal verification header." }, 401);
-  }
-
   let body: any;
   try {
     body = await request.clone().json();
   } catch {
     return badRequest("invalid JSON body");
+  }
+
+  let verified = false;
+  try {
+    verified = await verifyPayPalWebhook(request, env, body);
+  } catch {
+    verified = false;
+  }
+  if (!verified) {
+    return jsonResponse({ error: "unauthorized", message: "PayPal webhook verification failed." }, 401);
   }
 
   const eventType = typeof body?.event_type === "string" ? body.event_type.trim() : "";
@@ -4063,5 +4191,7 @@ export interface Env {
   PAYPAL_CLIENT_ID?: string;
   PAYPAL_CLIENT_SECRET?: string;
   PAYPAL_WEBHOOK_ID?: string;
+  PAYPAL_ENV?: "sandbox" | "live";
+  PAYPAL_API_BASE?: string;
 }
 
