@@ -549,12 +549,62 @@ h1 {
 
 .hide { display: none !important; }
 
+.plans-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.plan-card {
+  padding: 20px;
+}
+
+.plan-name {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.plan-price {
+  margin-top: 10px;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.plan-meta {
+  margin-top: 14px;
+  color: var(--text-muted);
+  line-height: 1.7;
+  font-size: 14px;
+}
+
+.buyer-console {
+  margin-top: 22px;
+  padding: 24px;
+}
+
+.buyer-console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.plan-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+
 @media (max-width: 1024px) {
   .hero-grid,
   .dashboard-grid,
   .split,
   .grid-3,
-  .flow { grid-template-columns: 1fr; }
+  .flow,
+  .plans-grid,
+  .plan-stats { grid-template-columns: 1fr; }
   .flow-arrow { transform: rotate(90deg); min-height: 22px; }
   .sidebar { position: static; }
 }
