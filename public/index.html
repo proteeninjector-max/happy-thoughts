@@ -177,6 +177,49 @@
 
           <pre class="code-block" id="buyer-plan-json">No buyer plan loaded yet.</pre>
         </article>
+
+        <article class="card buyer-console glass">
+          <div class="buyer-console-header">
+            <div>
+              <div class="eyebrow">Upgrade / activation</div>
+              <h3>Buy a plan with x402</h3>
+            </div>
+            <div class="badge" id="purchase-flow-badge">Idle</div>
+          </div>
+
+          <form class="token-form" id="activate-plan-form">
+            <div class="plans-grid">
+              <div class="field-group">
+                <label class="field-label" for="activate-wallet">Buyer wallet</label>
+                <input id="activate-wallet" class="field" type="text" placeholder="0x..." autocomplete="off" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="activate-plan">Plan</label>
+                <select id="activate-plan" class="field">
+                  <option value="starter">starter</option>
+                  <option value="builder">builder</option>
+                  <option value="pro">pro</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="activate-months">Months</label>
+                <input id="activate-months" class="field" type="number" min="1" max="12" step="1" value="1" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="activate-signature">PAYMENT-SIGNATURE (optional on first submit)</label>
+                <input id="activate-signature" class="field" type="text" placeholder="base64 x402 signature" autocomplete="off" />
+              </div>
+            </div>
+            <div class="cta-row" style="margin-top:0;">
+              <button class="btn btn-primary" type="submit">Start / retry activation</button>
+              <button class="btn btn-secondary" type="button" id="activate-clear">Clear purchase state</button>
+            </div>
+          </form>
+
+          <div class="notice" id="purchase-status">Submit without a signature first. If payment is required, the backend will return an x402 payload you can sign and retry with.</div>
+          <pre class="code-block" id="payment-required-json">No x402 payment requirement loaded yet.</pre>
+          <pre class="code-block" id="activation-response-json">No activation response yet.</pre>
+        </article>
       </div>
     </section>
 

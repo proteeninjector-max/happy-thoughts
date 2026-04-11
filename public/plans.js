@@ -8,6 +8,16 @@ const buyerPlanClear = document.getElementById("buyer-plan-clear");
 const buyerPlanStatus = document.getElementById("buyer-plan-status");
 const buyerPlanBadge = document.getElementById("buyer-plan-badge");
 const buyerPlanJson = document.getElementById("buyer-plan-json");
+const purchaseFlowBadge = document.getElementById("purchase-flow-badge");
+const activatePlanForm = document.getElementById("activate-plan-form");
+const activateWalletInput = document.getElementById("activate-wallet");
+const activatePlanInput = document.getElementById("activate-plan");
+const activateMonthsInput = document.getElementById("activate-months");
+const activateSignatureInput = document.getElementById("activate-signature");
+const activateClearButton = document.getElementById("activate-clear");
+const purchaseStatus = document.getElementById("purchase-status");
+const paymentRequiredJson = document.getElementById("payment-required-json");
+const activationResponseJson = document.getElementById("activation-response-json");
 
 const stats = {
   plan: document.getElementById("buyer-current-plan"),
@@ -45,6 +55,18 @@ async function api(path) {
   return data;
 }
 
+async function apiJson(path, options = {}) {
+  const resp = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "content-type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  const data = await resp.json().catch(() => ({}));
+  return { resp, data };
+}
+
 function renderPlans(plans) {
   const ordered = [plans.free, plans.starter, plans.builder, plans.pro].filter(Boolean);
   plansGrid.innerHTML = ordered.map((plan) => `
@@ -70,6 +92,13 @@ function resetBuyerPlan() {
   stats.verifiedUsage.textContent = "—";
   buyerPlanBadge.textContent = "Awaiting wallet";
   buyerPlanJson.textContent = "No buyer plan loaded yet.";
+}
+
+function resetPurchaseFlow() {
+  purchaseFlowBadge.textContent = "Idle";
+  paymentRequiredJson.textContent = "No x402 payment requirement loaded yet.";
+  activationResponseJson.textContent = "No activation response yet.";
+  purchaseStatus.textContent = "Submit without a signature first. If payment is required, the backend will return an x402 payload you can sign and retry with.";
 }
 
 function renderBuyerPlan(data) {
@@ -100,7 +129,25 @@ async function loadBuyerPlan(wallet) {
   const data = await api(`/me/plan?buyer_wallet=${encodeURIComponent(trimmed)}`);
   renderBuyerPlan(data);
   localStorage.setItem(walletStorageKey, trimmed);
+  if (buyerWalletInput) buyerWalletInput.value = trimmed;
+  if (activateWalletInput) activateWalletInput.value = trimmed;
   setStatus("Live plan and quotas loaded from backend.", "success");
+}
+
+async function submitPlanActivation({ buyerWallet, plan, months, paymentSignature }) {
+  const headers = paymentSignature
+    ? { "PAYMENT-SIGNATURE": paymentSignature }
+    : {};
+
+  return apiJson("/activate-plan", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      buyer_wallet: buyerWallet,
+      plan,
+      months
+    })
+  });
 }
 
 buyerPlanForm?.addEventListener("submit", async (event) => {
@@ -122,16 +169,73 @@ buyerPlanForm?.addEventListener("submit", async (event) => {
 buyerPlanClear?.addEventListener("click", () => {
   localStorage.removeItem(walletStorageKey);
   if (buyerWalletInput) buyerWalletInput.value = "";
+  if (activateWalletInput) activateWalletInput.value = "";
   resetBuyerPlan();
   setStatus("Paste a wallet to load live plan and quota data.");
 });
 
+activatePlanForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const buyerWallet = (activateWalletInput?.value || buyerWalletInput?.value || "").trim();
+  const plan = (activatePlanInput?.value || "starter").trim();
+  const months = Number(activateMonthsInput?.value || "1");
+  const paymentSignature = (activateSignatureInput?.value || "").trim();
+
+  if (!buyerWallet) {
+    purchaseStatus.textContent = "Paste a buyer wallet first.";
+    purchaseFlowBadge.textContent = "Need wallet";
+    return;
+  }
+
+  purchaseFlowBadge.textContent = paymentSignature ? "Retrying" : "Starting";
+  purchaseStatus.textContent = paymentSignature
+    ? "Retrying activation with PAYMENT-SIGNATURE header…"
+    : "Requesting plan activation…";
+
+  try {
+    const { resp, data } = await submitPlanActivation({ buyerWallet, plan, months, paymentSignature });
+    activationResponseJson.textContent = JSON.stringify(data, null, 2);
+
+    if (resp.status === 402) {
+      purchaseFlowBadge.textContent = "Payment required";
+      paymentRequiredJson.textContent = JSON.stringify(data?.paymentRequired || data, null, 2);
+      purchaseStatus.textContent = "Backend returned x402 payment requirements. Sign that payload with your wallet flow, paste the resulting PAYMENT-SIGNATURE above, then retry.";
+      return;
+    }
+
+    if (!resp.ok) {
+      purchaseFlowBadge.textContent = `Error ${resp.status}`;
+      paymentRequiredJson.textContent = "No x402 payment requirement loaded yet.";
+      purchaseStatus.textContent = data?.message || data?.error || `Activation failed with status ${resp.status}.`;
+      return;
+    }
+
+    purchaseFlowBadge.textContent = "Activated";
+    paymentRequiredJson.textContent = "No x402 payment requirement loaded yet.";
+    purchaseStatus.textContent = "Plan activated. Refreshing live buyer plan snapshot…";
+    await loadBuyerPlan(buyerWallet);
+    purchaseStatus.textContent = "Plan activated and buyer plan snapshot refreshed from backend.";
+  } catch (err) {
+    purchaseFlowBadge.textContent = "Error";
+    purchaseStatus.textContent = err.message || "Activation failed.";
+  }
+});
+
+activateClearButton?.addEventListener("click", () => {
+  if (activateSignatureInput) activateSignatureInput.value = "";
+  paymentRequiredJson.textContent = "No x402 payment requirement loaded yet.";
+  activationResponseJson.textContent = "No activation response yet.";
+  resetPurchaseFlow();
+});
+
 resetBuyerPlan();
+resetPurchaseFlow();
 loadPlans();
 
 const rememberedWallet = localStorage.getItem(walletStorageKey);
 if (rememberedWallet && buyerWalletInput) {
   buyerWalletInput.value = rememberedWallet;
+  if (activateWalletInput) activateWalletInput.value = rememberedWallet;
   loadBuyerPlan(rememberedWallet).catch((err) => {
     setStatus(err.message || "Failed to restore buyer plan.", "error");
     resetBuyerPlan();
