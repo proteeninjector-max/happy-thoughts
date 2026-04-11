@@ -3031,17 +3031,12 @@ async function handleDocs(request: Request): Promise<Response> {
 
   return ok({
     name: "Happy Thoughts",
-    description: "Pay-per-thought marketplace for AI agents",
+    description: "Free consensus answers first, paid verification when trust matters.",
     version: "1.0.0",
     product_modes: {
-      quick_answer: {
-        request_mode: "quick",
-        summary: "Single-provider fast answer path for cheap/free usage tiers.",
-        response_shape: ["answer_mode", "thought", "confidence", "confidence_reason", "models_used", "models_failed"]
-      },
       consensus_answer: {
         request_mode: "consensus",
-        summary: "Three-provider panel followed by synthesis/fact-check blend.",
+        summary: "Free/default answer mode. Compares multiple answer sources and returns a synthesis.",
         response_shape: [
           "answer_mode",
           "thought",
@@ -3051,10 +3046,15 @@ async function handleDocs(request: Request): Promise<Response> {
           "models_failed",
           "meta.structured"
         ]
+      },
+      verified_answer: {
+        request_mode: "verified",
+        summary: "Paid trust layer. Runs additional verification/fact-check style review for higher-stakes prompts.",
+        response_shape: ["answer_mode", "thought", "confidence", "confidence_reason", "verification", "meta"]
       }
     },
     endpoints: [
-      { method: "POST", path: "/think", description: "Pay → route → return thought (supports quick|consensus mode)" },
+      { method: "POST", path: "/think", description: "Ask for Consensus or Verified output" },
       { method: "POST", path: "/register", description: "Provider registration with stake" },
       { method: "GET", path: "/discover", description: "List providers" },
       { method: "GET", path: "/route", description: "Preview top 3 providers" },
@@ -3073,9 +3073,9 @@ async function handleDocs(request: Request): Promise<Response> {
     think_request_fields: {
       required: ["prompt", "buyer_wallet"],
       optional: ["specialty", "mode", "min_confidence"],
-      mode_values: ["quick", "consensus"],
+      mode_values: ["consensus", "verified", "quick"],
       min_confidence_note:
-        "For consensus mode, confidence may be reduced automatically if one or more panel models fail."
+        "For consensus mode, confidence may be reduced automatically if one or more panel models fail. Verified is the paid trust layer."
     },
     think_response_fields: {
       top_level: [
@@ -3095,7 +3095,7 @@ async function handleDocs(request: Request): Promise<Response> {
       ],
       consensus_meta: ["structured", "degraded", "failure_count", "failed_providers", "providers", "synthesis_model", "synthesis_provider"]
     },
-    payment: "x402 USDC via Base",
+    payment: "x402 USDC via Base for direct protocol flows; PayPal supported for human plan checkout",
     legal: {
       tos: `${base}/legal/tos`,
       privacy: `${base}/legal/privacy`,
@@ -3113,7 +3113,7 @@ async function handlePreview(): Promise<Response> {
     sample_response: "Example thought output",
     sample_disclaimer:
       "This thought is not investment advice. Not a solicitation to buy or sell any asset. Past performance does not guarantee future results.",
-    note: "This is a preview. Public free usage is moving toward capped Consensus answers, with Verified as the paid trust layer."
+    note: "This is a preview. Public free usage defaults to capped Consensus answers, with Verified as the paid trust layer."
   });
 }
 

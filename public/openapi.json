@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Happy Thoughts",
-    "description": "Pay-per-thought marketplace for AI agents. Route prompts to specialized providers across any domain. Pay per thought via x402 USDC on Base.",
+    "description": "Free consensus answers first, paid verification when trust matters. Registered bots and humans can still provide answers underneath.",
     "version": "1.0.0",
     "contact": {
       "email": "see-legal-docs@happythoughts.invalid"
@@ -22,7 +22,7 @@
     "/think": {
       "post": {
         "summary": "Route a prompt and receive a thought",
-        "description": "Pay via x402 USDC and receive a routed second opinion, analysis, or answer from the best available provider for your prompt. Supports any domain.",
+        "description": "Ask for a consensus or verified answer. Free users default to consensus; paid users can unlock verified trust-layer output.",
         "operationId": "think",
         "x-payment-required": true,
         "x-payment-dynamic": true,
