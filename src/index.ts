@@ -728,6 +728,40 @@ async function buildVerifiedUsageSnapshot(env: Env, buyerWallet: string, plan: P
   return buildUsageSnapshot(limit, used, "month");
 }
 
+function getPlanCatalog() {
+  return {
+    free: {
+      plan: "free",
+      price_usd_monthly: 0,
+      verified_quota_monthly: 0,
+      prompt_char_limit: PLAN_CONFIG.free.promptCharLimit,
+      verification_enabled: false,
+      free_consensus_daily_limit: FREE_CONSENSUS_DAILY_LIMIT
+    },
+    starter: {
+      plan: "starter",
+      price_usd_monthly: PLAN_CONFIG.starter.monthlyPriceUsd,
+      verified_quota_monthly: PLAN_CONFIG.starter.verifiedMonthlyLimit,
+      prompt_char_limit: PLAN_CONFIG.starter.promptCharLimit,
+      verification_enabled: true
+    },
+    builder: {
+      plan: "builder",
+      price_usd_monthly: PLAN_CONFIG.builder.monthlyPriceUsd,
+      verified_quota_monthly: PLAN_CONFIG.builder.verifiedMonthlyLimit,
+      prompt_char_limit: PLAN_CONFIG.builder.promptCharLimit,
+      verification_enabled: true
+    },
+    pro: {
+      plan: "pro",
+      price_usd_monthly: PLAN_CONFIG.pro.monthlyPriceUsd,
+      verified_quota_monthly: PLAN_CONFIG.pro.verifiedMonthlyLimit,
+      prompt_char_limit: PLAN_CONFIG.pro.promptCharLimit,
+      verification_enabled: true
+    }
+  } as const;
+}
+
 function resolveAnswerMode(body: any, plan: PlanTier, isOwner: boolean): AnswerMode {
   const rawMode = typeof body?.mode === "string" ? body.mode.trim().toLowerCase() : "";
   if (rawMode === "verified") return "verified";
@@ -2015,6 +2049,39 @@ async function handleActivatePlan(request: Request, env: Env): Promise<Response>
     price_paid_usd: price,
     entitlement: record,
     verified_quota_monthly: config.verifiedMonthlyLimit
+  });
+}
+
+async function handlePlans(): Promise<Response> {
+  return ok({
+    plans: getPlanCatalog(),
+    currency: "USD",
+    billing_period: "month"
+  });
+}
+
+async function handleMyPlan(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const buyerWallet = url.searchParams.get("buyer_wallet")?.trim() || "";
+  if (!isValidWallet(buyerWallet)) return badRequest("buyer_wallet must be a valid EVM address");
+
+  const entitlement = await getBuyerEntitlement(env, buyerWallet);
+  const raw = await env.BUYERS.get(buyerEntitlementKey(buyerWallet));
+  const storedEntitlement = raw ? JSON.parse(raw) : null;
+  const plan = entitlement?.plan || (storedEntitlement?.plan && isPlanTier(storedEntitlement.plan) ? storedEntitlement.plan : "free");
+  const verifiedUsage = await buildVerifiedUsageSnapshot(env, buyerWallet, plan);
+  const freeConsensusUsage = buildUsageSnapshot(FREE_CONSENSUS_DAILY_LIMIT, await getFreeConsensusUsage(env, buyerWallet), "day");
+
+  return ok({
+    buyer_wallet: buyerWallet,
+    plan,
+    entitlement,
+    stored_entitlement: storedEntitlement,
+    quotas: {
+      free_consensus_daily: freeConsensusUsage,
+      verified_monthly: verifiedUsage
+    },
+    plan_catalog: getPlanCatalog()[plan]
   });
 }
 
@@ -3721,6 +3788,14 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/admin/buyer-entitlement") {
       return handleBuyerEntitlementUpsert(request, env);
+    }
+
+    if (request.method === "GET" && url.pathname === "/plans") {
+      return handlePlans();
+    }
+
+    if (request.method === "GET" && url.pathname === "/me/plan") {
+      return handleMyPlan(request, env);
     }
 
     if (request.method === "GET" && url.pathname === "/internal/shill-template") {

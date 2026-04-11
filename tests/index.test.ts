@@ -2051,6 +2051,44 @@ describe("HappyThoughts plan entitlements", () => {
     const json: any = await res.json();
     expect(Date.parse(json.entitlement.ends_at)).toBeGreaterThan(Date.parse(future));
   });
+
+  it("returns public plan catalog from /plans", async () => {
+    const env = makeEnv();
+    const res = await worker.fetch(new Request("https://test/plans"), env, {} as any);
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.plans.free.free_consensus_daily_limit).toBe(3);
+    expect(json.plans.starter.price_usd_monthly).toBe(9);
+    expect(json.plans.pro.verified_quota_monthly).toBe(1000);
+  });
+
+  it("returns buyer plan and quota snapshot from /me/plan", async () => {
+    const env = makeEnv();
+    const wallet = "0x170992058429d3d52615fef70c1006f5e5d6467c";
+    await env.BUYERS.put(
+      `entitlement:${wallet.toLowerCase()}`,
+      JSON.stringify({
+        buyer_wallet: wallet,
+        plan: "builder",
+        status: "active",
+        starts_at: new Date().toISOString(),
+        ends_at: new Date(Date.now() + 86400000).toISOString(),
+        granted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        source: "test"
+      })
+    );
+    await env.BUYERS.put(`usage:free-consensus:${wallet.toLowerCase()}:${new Date().toISOString().slice(0, 10)}`, "2");
+    await env.BUYERS.put(`usage:verified:${wallet.toLowerCase()}:${new Date().toISOString().slice(0, 7)}`, "7");
+
+    const res = await worker.fetch(new Request(`https://test/me/plan?buyer_wallet=${wallet}`), env, {} as any);
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.plan).toBe("builder");
+    expect(json.quotas.free_consensus_daily).toMatchObject({ used: 2, limit: 3, remaining: 1, period: "day" });
+    expect(json.quotas.verified_monthly).toMatchObject({ used: 7, limit: 300, remaining: 293, period: "month" });
+    expect(json.plan_catalog.price_usd_monthly).toBe(19);
+  });
 });
 
 describe("HappyThoughts internal consensus", () => {
