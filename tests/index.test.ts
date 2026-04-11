@@ -2139,6 +2139,117 @@ describe("HappyThoughts plan entitlements", () => {
     }
   });
 
+  it("captures an approved paypal order and activates entitlement", async () => {
+    const env = {
+      ...makeEnv(),
+      PAYPAL_CLIENT_ID: "paypal-client-id",
+      PAYPAL_CLIENT_SECRET: "paypal-secret",
+      PAYPAL_API_BASE: "https://paypal.test"
+    } as any;
+
+    await env.BUYERS.put("paypal-order:pp_order_capture", JSON.stringify({
+      order_id: "pp_order_capture",
+      buyer_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+      plan: "starter",
+      months: 1,
+      price_usd: 9,
+      status: "approved",
+      provider: "paypal"
+    }));
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url === "https://paypal.test/v1/oauth2/token") {
+        return new Response(JSON.stringify({ access_token: "pp_access" }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url === "https://paypal.test/v2/checkout/orders/pp_order_capture/capture") {
+        return new Response(JSON.stringify({
+          status: "COMPLETED",
+          purchase_units: [{ payments: { captures: [{ id: "CAPTURE_123" }] } }]
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const res = await worker.fetch(new Request("https://test/paypal/capture-order", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ order_id: "pp_order_capture" })
+      }), env, {} as any);
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.status).toBe("activated");
+      expect(json.provider).toBe("paypal");
+      expect(json.plan).toBe("starter");
+
+      const stored = JSON.parse(await env.BUYERS.get("entitlement:0x170992058429d3d52615fef70c1006f5e5d6467c") || "null");
+      expect(stored.plan).toBe("starter");
+      expect(stored.source).toBe("paypal");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("paypal webhook ignores approval-only events", async () => {
+    const env = {
+      ...makeEnv(),
+      PAYPAL_CLIENT_ID: "paypal-client-id",
+      PAYPAL_CLIENT_SECRET: "paypal-secret",
+      PAYPAL_WEBHOOK_ID: "wh_test",
+      PAYPAL_API_BASE: "https://paypal.test"
+    } as any;
+
+    await env.BUYERS.put("paypal-order:pp_order_approved", JSON.stringify({
+      order_id: "pp_order_approved",
+      buyer_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+      plan: "starter",
+      months: 1,
+      price_usd: 9,
+      status: "created",
+      provider: "paypal"
+    }));
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url === "https://paypal.test/v1/oauth2/token") {
+        return new Response(JSON.stringify({ access_token: "pp_access" }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url === "https://paypal.test/v1/notifications/verify-webhook-signature") {
+        return new Response(JSON.stringify({ verification_status: "SUCCESS" }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const res = await worker.fetch(new Request("https://test/paypal/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "paypal-transmission-id": "tx-approve",
+          "paypal-transmission-time": "2026-04-11T20:00:00Z",
+          "paypal-cert-url": "https://api-m.sandbox.paypal.com/certs/cert.pem",
+          "paypal-auth-algo": "SHA256withRSA",
+          "paypal-transmission-sig": "sig-approve"
+        },
+        body: JSON.stringify({
+          event_type: "CHECKOUT.ORDER.APPROVED",
+          resource: { id: "pp_order_approved" }
+        })
+      }), env, {} as any);
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.status).toBe("ignored");
+      expect(await env.BUYERS.get("entitlement:0x170992058429d3d52615fef70c1006f5e5d6467c")).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("paypal webhook verifies signature and activates entitlement once order completes", async () => {
     const env = {
       ...makeEnv(),

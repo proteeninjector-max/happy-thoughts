@@ -67,8 +67,11 @@
         <li><span class="mono">GET /me/plan?buyer_wallet=0x...</span> — resolved buyer plan + quota snapshot</li>
         <li><span class="mono">POST /activate-plan</span> — x402 plan activation path</li>
         <li><span class="mono">POST /paypal/create-order</span> — PayPal order creation for human checkout</li>
-        <li><span class="mono">POST /paypal/webhook</span> — PayPal completion webhook</li>
+        <li><span class="mono">POST /paypal/capture-order</span> — Capture an approved PayPal order after return from checkout</li>
+        <li><span class="mono">POST /paypal/webhook</span> — PayPal completion webhook (capture-completed only)</li>
       </ul>
+      <p>PayPal flow is now: create order → buyer approves on PayPal → capture the approved order via <span class="mono">POST /paypal/capture-order</span> → entitlement activates. Webhooks only activate on capture-completed events.</p>
+      <p>Required PayPal secrets: <span class="mono">PAYPAL_CLIENT_ID</span>, <span class="mono">PAYPAL_CLIENT_SECRET</span>, <span class="mono">PAYPAL_WEBHOOK_ID</span>. Optional: <span class="mono">PAYPAL_ENV</span> (<span class="mono">sandbox</span>|<span class="mono">live</span>) and <span class="mono">PAYPAL_API_BASE</span> for tests.</p>
       <p>Payment split now looks like this:</p>
       <ul>
         <li><strong>x402</strong> — direct protocol / agent-native path</li>

@@ -176,6 +176,13 @@ async function createPayPalOrder({ buyerWallet, plan, months }) {
   });
 }
 
+async function capturePayPalOrder(orderId) {
+  return apiJson("/paypal/capture-order", {
+    method: "POST",
+    body: JSON.stringify({ order_id: orderId })
+  });
+}
+
 buyerPlanForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const wallet = buyerWalletInput?.value || "";
@@ -302,6 +309,7 @@ const walletFromParams = pageParams.get("buyer_wallet") || "";
 const planFromParams = pageParams.get("plan") || "";
 const monthsFromParams = pageParams.get("months") || "";
 const paypalStatus = pageParams.get("paypal_status") || "";
+const paypalOrderId = pageParams.get("token") || pageParams.get("paypal_order_id") || "";
 const rememberedWallet = localStorage.getItem(walletStorageKey);
 const startupWallet = walletFromParams || rememberedWallet;
 
@@ -311,10 +319,30 @@ if (monthsFromParams && activateMonthsInput) activateMonthsInput.value = monthsF
 if (startupWallet && buyerWalletInput) {
   buyerWalletInput.value = startupWallet;
   if (activateWalletInput) activateWalletInput.value = startupWallet;
-  loadBuyerPlan(startupWallet).then(() => {
-    if (paypalStatus === "returned") {
+  loadBuyerPlan(startupWallet).then(async () => {
+    if (paypalStatus === "returned" && paypalOrderId) {
+      purchaseFlowBadge.textContent = "Capturing PayPal";
+      purchaseStatus.textContent = "Returned from PayPal. Capturing approved order…";
+      try {
+        const { resp, data } = await capturePayPalOrder(paypalOrderId);
+        activationResponseJson.textContent = JSON.stringify(data, null, 2);
+        if (!resp.ok) {
+          purchaseFlowBadge.textContent = `Error ${resp.status}`;
+          purchaseStatus.textContent = data?.message || data?.error || `PayPal capture failed with status ${resp.status}.`;
+          return;
+        }
+        await loadBuyerPlan(startupWallet);
+        purchaseFlowBadge.textContent = data?.status === "already_applied" ? "Already activated" : "Activated";
+        purchaseStatus.textContent = data?.status === "already_applied"
+          ? "PayPal order was already captured and applied."
+          : "PayPal capture completed and buyer plan snapshot refreshed.";
+      } catch (err) {
+        purchaseFlowBadge.textContent = "Error";
+        purchaseStatus.textContent = err.message || "PayPal capture failed.";
+      }
+    } else if (paypalStatus === "returned") {
       purchaseFlowBadge.textContent = "PayPal returned";
-      purchaseStatus.textContent = "Returned from PayPal. If the webhook already landed, the buyer plan snapshot above should now reflect the paid plan.";
+      purchaseStatus.textContent = "Returned from PayPal, but no order token was present to capture.";
     } else if (paypalStatus === "cancelled") {
       purchaseFlowBadge.textContent = "PayPal cancelled";
       purchaseStatus.textContent = "PayPal checkout was cancelled.";
@@ -325,7 +353,9 @@ if (startupWallet && buyerWalletInput) {
   });
 } else if (paypalStatus === "returned") {
   purchaseFlowBadge.textContent = "PayPal returned";
-  purchaseStatus.textContent = "Returned from PayPal. Paste the buyer wallet to refresh the live plan snapshot.";
+  purchaseStatus.textContent = paypalOrderId
+    ? "Returned from PayPal. Paste the buyer wallet to finish capture and refresh the plan snapshot."
+    : "Returned from PayPal, but no order token was present to capture.";
 } else if (paypalStatus === "cancelled") {
   purchaseFlowBadge.textContent = "PayPal cancelled";
   purchaseStatus.textContent = "PayPal checkout was cancelled.";

@@ -2142,6 +2142,39 @@ async function handleActivatePlan(request: Request, env: Env): Promise<Response>
   });
 }
 
+async function activateStoredPayPalOrder(env: Env, order: any, orderId: string, source: string, meta?: Record<string, any>): Promise<Response> {
+  const alreadyApplied = await env.BUYERS.get(`paypal-activated:${orderId}`);
+  if (alreadyApplied) {
+    return ok({ status: "already_applied", order_id: orderId });
+  }
+
+  const { record, config, price } = await grantPlanEntitlement(
+    env,
+    order.buyer_wallet,
+    order.plan,
+    order.months,
+    source,
+    orderId,
+    meta
+  );
+
+  await env.BUYERS.put(`paypal-activated:${orderId}`, JSON.stringify({ activated_at: new Date().toISOString(), source, ...(meta || {}) }));
+  await env.BUYERS.put(`paypal-order:${orderId}`, JSON.stringify({ ...order, status: "completed", completed_at: new Date().toISOString() }));
+
+  return ok({
+    status: "activated",
+    provider: "paypal",
+    order_id: orderId,
+    buyer_wallet: order.buyer_wallet,
+    plan: order.plan,
+    months: order.months,
+    price_paid_usd: price,
+    entitlement: record,
+    verified_quota_monthly: config.verifiedMonthlyLimit,
+    ...(meta || {})
+  });
+}
+
 async function handlePayPalCreateOrder(request: Request, env: Env): Promise<Response> {
   let body: any;
   try {
@@ -2164,89 +2197,123 @@ async function handlePayPalCreateOrder(request: Request, env: Env): Promise<Resp
   const returnUrl = validatePublicUrl(normalizeOptionalString(body?.return_url, 500), "return_url");
   const cancelUrl = validatePublicUrl(normalizeOptionalString(body?.cancel_url, 500), "cancel_url");
   if (!returnUrl || !cancelUrl) return badRequest("return_url and cancel_url are required for PayPal checkout");
-  if (!env.PAYPAL_CLIENT_ID) {
-    return jsonResponse({ error: "paypal_not_configured", message: "PayPal is not configured yet." }, 503);
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+    return jsonResponse({ error: "paypal_not_configured", message: "PayPal client credentials are not configured yet." }, 503);
   }
 
   const config = getPlanConfig(rawPlan);
   const price = Number((config.monthlyPriceUsd * months).toFixed(2));
   const nowIso = new Date().toISOString();
 
-  let order: any;
-  if (env.PAYPAL_CLIENT_SECRET) {
-    const accessToken = await getPayPalAccessToken(env);
-    const createResp = await fetch(`${getPayPalApiBase(env)}/v2/checkout/orders`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        "content-type": "application/json",
-        prefer: "return=representation"
-      },
-      body: JSON.stringify({
-        intent: "CAPTURE",
-        purchase_units: [{
-          amount: {
-            currency_code: "USD",
-            value: price.toFixed(2)
-          },
-          description: `Happy Thoughts ${rawPlan} plan x ${months} month(s)`,
-          custom_id: JSON.stringify({ buyer_wallet: buyerWallet, plan: rawPlan, months }).slice(0, 127)
-        }],
-        application_context: {
-          brand_name: "Happy Thoughts",
-          user_action: "PAY_NOW",
-          return_url: returnUrl,
-          cancel_url: cancelUrl
-        }
-      })
-    });
+  const accessToken = await getPayPalAccessToken(env);
+  const createResp = await fetch(`${getPayPalApiBase(env)}/v2/checkout/orders`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      prefer: "return=representation"
+    },
+    body: JSON.stringify({
+      intent: "CAPTURE",
+      purchase_units: [{
+        amount: {
+          currency_code: "USD",
+          value: price.toFixed(2)
+        },
+        description: `Happy Thoughts ${rawPlan} plan x ${months} month(s)`,
+        custom_id: JSON.stringify({ buyer_wallet: buyerWallet, plan: rawPlan, months }).slice(0, 127)
+      }],
+      application_context: {
+        brand_name: "Happy Thoughts",
+        user_action: "PAY_NOW",
+        return_url: returnUrl,
+        cancel_url: cancelUrl
+      }
+    })
+  });
 
-    const createJson: any = await createResp.json().catch(() => ({}));
-    if (!createResp.ok || !createJson?.id) {
-      return jsonResponse({ error: "paypal_order_create_failed", message: "PayPal order creation failed.", details: createJson }, 502);
-    }
-
-    const approvalUrl = Array.isArray(createJson?.links)
-      ? (createJson.links.find((item: any) => item?.rel === "approve")?.href || null)
-      : null;
-
-    order = {
-      order_id: createJson.id,
-      buyer_wallet: buyerWallet,
-      plan: rawPlan,
-      months,
-      price_usd: price,
-      currency: "USD",
-      status: createJson.status || "CREATED",
-      provider: "paypal",
-      return_url: returnUrl,
-      cancel_url: cancelUrl,
-      approval_url: approvalUrl,
-      created_at: nowIso,
-      raw: createJson
-    };
-  } else {
-    const orderId = `pp_order_${crypto.randomUUID()}`;
-    const approvalUrl = `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}paypal_order_id=${encodeURIComponent(orderId)}`;
-    order = {
-      order_id: orderId,
-      buyer_wallet: buyerWallet,
-      plan: rawPlan,
-      months,
-      price_usd: price,
-      currency: "USD",
-      status: "stub_created",
-      provider: "paypal",
-      return_url: returnUrl,
-      cancel_url: cancelUrl,
-      approval_url: approvalUrl,
-      created_at: nowIso
-    };
+  const createJson: any = await createResp.json().catch(() => ({}));
+  if (!createResp.ok || !createJson?.id) {
+    return jsonResponse({ error: "paypal_order_create_failed", message: "PayPal order creation failed.", details: createJson }, 502);
   }
+
+  const approvalUrl = Array.isArray(createJson?.links)
+    ? (createJson.links.find((item: any) => item?.rel === "approve")?.href || null)
+    : null;
+
+  const order = {
+    order_id: createJson.id,
+    buyer_wallet: buyerWallet,
+    plan: rawPlan,
+    months,
+    price_usd: price,
+    currency: "USD",
+    status: createJson.status || "CREATED",
+    provider: "paypal",
+    return_url: returnUrl,
+    cancel_url: cancelUrl,
+    approval_url: approvalUrl,
+    created_at: nowIso,
+    raw: createJson
+  };
 
   await env.BUYERS.put(`paypal-order:${order.order_id}`, JSON.stringify(order));
 
   return ok(order, 201);
+}
+
+async function handlePayPalCaptureOrder(request: Request, env: Env): Promise<Response> {
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+    return jsonResponse({ error: "paypal_not_configured", message: "PayPal client credentials are not configured yet." }, 503);
+  }
+
+  let body: any;
+  try {
+    body = await request.clone().json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const orderId = typeof body?.order_id === "string" ? body.order_id.trim() : "";
+  if (!orderId) return badRequest("order_id is required");
+
+  const rawOrder = await env.BUYERS.get(`paypal-order:${orderId}`);
+  if (!rawOrder) return badRequest("unknown paypal order");
+  const order = JSON.parse(rawOrder);
+
+  const alreadyApplied = await env.BUYERS.get(`paypal-activated:${orderId}`);
+  if (alreadyApplied) {
+    return ok({ status: "already_applied", order_id: orderId });
+  }
+
+  const accessToken = await getPayPalAccessToken(env);
+  const captureResp = await fetch(`${getPayPalApiBase(env)}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      prefer: "return=representation"
+    },
+    body: "{}"
+  });
+
+  const captureJson: any = await captureResp.json().catch(() => ({}));
+  const captureStatus = typeof captureJson?.status === "string" ? captureJson.status : "";
+  if (!captureResp.ok || captureStatus !== "COMPLETED") {
+    await env.BUYERS.put(`paypal-capture-failed:${orderId}:${Date.now()}`, JSON.stringify({
+      received_at: new Date().toISOString(),
+      status: captureStatus || captureResp.status,
+      body: captureJson
+    }));
+    return jsonResponse({ error: "paypal_capture_failed", message: "PayPal order capture failed.", details: captureJson }, 502);
+  }
+
+  await env.BUYERS.put(`paypal-capture:${orderId}`, JSON.stringify({ captured_at: new Date().toISOString(), body: captureJson }));
+  return activateStoredPayPalOrder(env, order, orderId, "paypal", {
+    capture_status: captureStatus,
+    paypal_order_id: orderId,
+    capture_id: captureJson?.purchase_units?.[0]?.payments?.captures?.[0]?.id || null
+  });
 }
 
 async function handlePayPalWebhook(request: Request, env: Env): Promise<Response> {
@@ -2280,40 +2347,16 @@ async function handlePayPalWebhook(request: Request, env: Env): Promise<Response
   if (!rawOrder) return badRequest("unknown paypal order");
   const order = JSON.parse(rawOrder);
 
-  if (eventType !== "CHECKOUT.ORDER.APPROVED" && eventType !== "PAYMENT.CAPTURE.COMPLETED") {
+  if (eventType !== "PAYMENT.CAPTURE.COMPLETED") {
     await env.BUYERS.put(`paypal-event:${orderId}:${Date.now()}`, JSON.stringify({ event_type: eventType, ignored: true, received_at: new Date().toISOString() }));
     return ok({ status: "ignored", event_type: eventType, order_id: orderId });
   }
 
-  const alreadyApplied = await env.BUYERS.get(`paypal-activated:${orderId}`);
-  if (alreadyApplied) {
-    return ok({ status: "already_applied", order_id: orderId });
-  }
-
-  const { record, config, price } = await grantPlanEntitlement(
-    env,
-    order.buyer_wallet,
-    order.plan,
-    order.months,
-    "paypal",
-    orderId,
-    { paypal_event_type: eventType, paypal_order_id: orderId }
-  );
-
-  await env.BUYERS.put(`paypal-activated:${orderId}`, JSON.stringify({ activated_at: new Date().toISOString(), event_type: eventType }));
-  await env.BUYERS.put(`paypal-order:${orderId}`, JSON.stringify({ ...order, status: "completed", completed_at: new Date().toISOString() }));
-
-  return ok({
-    status: "activated",
-    provider: "paypal",
-    order_id: orderId,
+  return activateStoredPayPalOrder(env, order, orderId, "paypal", {
     event_type: eventType,
-    buyer_wallet: order.buyer_wallet,
-    plan: order.plan,
-    months: order.months,
-    price_paid_usd: price,
-    entitlement: record,
-    verified_quota_monthly: config.verifiedMonthlyLimit
+    paypal_event_type: eventType,
+    paypal_order_id: orderId,
+    capture_id: typeof resource?.id === "string" ? resource.id : null
   });
 }
 
@@ -4127,6 +4170,8 @@ export default {
         return handleActivatePlan(request, env);
       case "POST /paypal/create-order":
         return handlePayPalCreateOrder(request, env);
+      case "POST /paypal/capture-order":
+        return handlePayPalCaptureOrder(request, env);
       case "POST /paypal/webhook":
         return handlePayPalWebhook(request, env);
       case "POST /internal/think":

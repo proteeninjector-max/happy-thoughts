@@ -23,6 +23,13 @@ X402_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 # CEREBRAS_API_KEY
 # MISTRAL_API_KEY
 # GEMMA_AI_API_KEY
+# PAYPAL_CLIENT_ID
+# PAYPAL_CLIENT_SECRET
+# PAYPAL_WEBHOOK_ID
+
+# Optional PayPal vars
+# PAYPAL_ENV = "sandbox" # or "live"
+# PAYPAL_API_BASE = "https://api-m.sandbox.paypal.com"
 
 # Optional vars for internal consensus routing
 # CEREBRAS_MODEL = "llama3.1-8b"

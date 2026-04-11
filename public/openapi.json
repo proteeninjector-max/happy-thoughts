@@ -796,10 +796,46 @@
         }
       }
     },
+    "/paypal/capture-order": {
+      "post": {
+        "summary": "Capture an approved PayPal plan checkout order",
+        "description": "Captures an already-approved PayPal order and activates the matching buyer entitlement only after capture completes.",
+        "operationId": "paypalCaptureOrder",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "order_id"
+                ],
+                "properties": {
+                  "order_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PayPal order captured or already applied"
+          },
+          "502": {
+            "description": "PayPal capture failed"
+          },
+          "503": {
+            "description": "PayPal not configured"
+          }
+        }
+      }
+    },
     "/paypal/webhook": {
       "post": {
         "summary": "Receive PayPal completion webhook",
-        "description": "Verifies PayPal webhook signatures and activates the matching buyer entitlement on completed payment.",
+        "description": "Verifies PayPal webhook signatures and activates the matching buyer entitlement only on capture-completed payment events.",
         "operationId": "paypalWebhook",
         "responses": {
           "200": {

@@ -43,6 +43,28 @@ Model failures must be surfaced to the caller through:
 - `meta.degraded`
 - `meta.failure_count`
 
+## Billing / PayPal flow
+
+Paid plans support two paths:
+- x402 for agent-native / onchain activation
+- PayPal for normal human checkout
+
+PayPal flow:
+1. `POST /paypal/create-order`
+2. buyer approves on PayPal
+3. frontend/server calls `POST /paypal/capture-order`
+4. entitlement activates only after capture completes
+5. `POST /paypal/webhook` is accepted as an idempotent completion path for capture-completed events
+
+Required PayPal config:
+- `PAYPAL_CLIENT_ID`
+- `PAYPAL_CLIENT_SECRET`
+- `PAYPAL_WEBHOOK_ID`
+
+Optional:
+- `PAYPAL_ENV` = `sandbox` | `live`
+- `PAYPAL_API_BASE` for tests/overrides
+
 ## API Shape
 
 ### `POST /think`
