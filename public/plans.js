@@ -18,6 +18,7 @@ const activateClearButton = document.getElementById("activate-clear");
 const purchaseStatus = document.getElementById("purchase-status");
 const paymentRequiredJson = document.getElementById("payment-required-json");
 const activationResponseJson = document.getElementById("activation-response-json");
+const paypalCheckoutButton = document.getElementById("paypal-checkout-btn");
 
 const stats = {
   plan: document.getElementById("buyer-current-plan"),
@@ -150,6 +151,31 @@ async function submitPlanActivation({ buyerWallet, plan, months, paymentSignatur
   });
 }
 
+async function createPayPalOrder({ buyerWallet, plan, months }) {
+  const currentUrl = new URL(window.location.href);
+  currentUrl.searchParams.set("buyer_wallet", buyerWallet);
+  currentUrl.searchParams.set("plan", plan);
+  currentUrl.searchParams.set("months", String(months));
+  currentUrl.searchParams.set("checkout", "paypal");
+
+  const cancelUrl = new URL(currentUrl.toString());
+  cancelUrl.searchParams.set("paypal_status", "cancelled");
+
+  const returnUrl = new URL(currentUrl.toString());
+  returnUrl.searchParams.set("paypal_status", "returned");
+
+  return apiJson("/paypal/create-order", {
+    method: "POST",
+    body: JSON.stringify({
+      buyer_wallet: buyerWallet,
+      plan,
+      months,
+      return_url: returnUrl.toString(),
+      cancel_url: cancelUrl.toString()
+    })
+  });
+}
+
 buyerPlanForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const wallet = buyerWalletInput?.value || "";
@@ -221,6 +247,45 @@ activatePlanForm?.addEventListener("submit", async (event) => {
   }
 });
 
+paypalCheckoutButton?.addEventListener("click", async () => {
+  const buyerWallet = (activateWalletInput?.value || buyerWalletInput?.value || "").trim();
+  const plan = (activatePlanInput?.value || "starter").trim();
+  const months = Number(activateMonthsInput?.value || "1");
+
+  if (!buyerWallet) {
+    purchaseFlowBadge.textContent = "Need wallet";
+    purchaseStatus.textContent = "Paste a buyer wallet first.";
+    return;
+  }
+
+  purchaseFlowBadge.textContent = "Creating PayPal order";
+  purchaseStatus.textContent = "Creating PayPal checkout order…";
+
+  try {
+    const { resp, data } = await createPayPalOrder({ buyerWallet, plan, months });
+    activationResponseJson.textContent = JSON.stringify(data, null, 2);
+
+    if (!resp.ok) {
+      purchaseFlowBadge.textContent = `Error ${resp.status}`;
+      purchaseStatus.textContent = data?.message || data?.error || `PayPal order creation failed with status ${resp.status}.`;
+      return;
+    }
+
+    if (!data?.approval_url) {
+      purchaseFlowBadge.textContent = "No approval URL";
+      purchaseStatus.textContent = "PayPal order was created but no approval_url came back.";
+      return;
+    }
+
+    purchaseFlowBadge.textContent = "Redirecting to PayPal";
+    purchaseStatus.textContent = "Redirecting to PayPal approval…";
+    window.location.href = data.approval_url;
+  } catch (err) {
+    purchaseFlowBadge.textContent = "Error";
+    purchaseStatus.textContent = err.message || "PayPal checkout failed.";
+  }
+});
+
 activateClearButton?.addEventListener("click", () => {
   if (activateSignatureInput) activateSignatureInput.value = "";
   paymentRequiredJson.textContent = "No x402 payment requirement loaded yet.";
@@ -232,12 +297,36 @@ resetBuyerPlan();
 resetPurchaseFlow();
 loadPlans();
 
+const pageParams = new URLSearchParams(window.location.search);
+const walletFromParams = pageParams.get("buyer_wallet") || "";
+const planFromParams = pageParams.get("plan") || "";
+const monthsFromParams = pageParams.get("months") || "";
+const paypalStatus = pageParams.get("paypal_status") || "";
 const rememberedWallet = localStorage.getItem(walletStorageKey);
-if (rememberedWallet && buyerWalletInput) {
-  buyerWalletInput.value = rememberedWallet;
-  if (activateWalletInput) activateWalletInput.value = rememberedWallet;
-  loadBuyerPlan(rememberedWallet).catch((err) => {
+const startupWallet = walletFromParams || rememberedWallet;
+
+if (planFromParams && activatePlanInput) activatePlanInput.value = planFromParams;
+if (monthsFromParams && activateMonthsInput) activateMonthsInput.value = monthsFromParams;
+
+if (startupWallet && buyerWalletInput) {
+  buyerWalletInput.value = startupWallet;
+  if (activateWalletInput) activateWalletInput.value = startupWallet;
+  loadBuyerPlan(startupWallet).then(() => {
+    if (paypalStatus === "returned") {
+      purchaseFlowBadge.textContent = "PayPal returned";
+      purchaseStatus.textContent = "Returned from PayPal. If the webhook already landed, the buyer plan snapshot above should now reflect the paid plan.";
+    } else if (paypalStatus === "cancelled") {
+      purchaseFlowBadge.textContent = "PayPal cancelled";
+      purchaseStatus.textContent = "PayPal checkout was cancelled.";
+    }
+  }).catch((err) => {
     setStatus(err.message || "Failed to restore buyer plan.", "error");
     resetBuyerPlan();
   });
+} else if (paypalStatus === "returned") {
+  purchaseFlowBadge.textContent = "PayPal returned";
+  purchaseStatus.textContent = "Returned from PayPal. Paste the buyer wallet to refresh the live plan snapshot.";
+} else if (paypalStatus === "cancelled") {
+  purchaseFlowBadge.textContent = "PayPal cancelled";
+  purchaseStatus.textContent = "PayPal checkout was cancelled.";
 }
