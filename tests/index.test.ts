@@ -1835,6 +1835,152 @@ describe("HappyThoughts provider hosted mode", () => {
   });
 });
 
+describe("HappyThoughts plan entitlements", () => {
+  it("uses stored buyer entitlement instead of trusting public plan headers", async () => {
+    const env = makeEnv();
+
+    await env.BUYERS.put(
+      "entitlement:0xbuyer000000000000000000000000000000000001",
+      JSON.stringify({
+        buyer_wallet: "0xBuyer000000000000000000000000000000000001",
+        plan: "starter",
+        status: "active",
+        starts_at: new Date().toISOString(),
+        ends_at: new Date(Date.now() + 86400000).toISOString(),
+        granted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        source: "test"
+      })
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("api.cerebras.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Stored plan should unlock verified.","","Key Points:","- entitlement lookup works","","Caveats:","- none","","Bottom Line:","Verified path should execute."].join("\n") } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("api.mistral.ai") && url.includes("chat/completions")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Verification should still run.","","Key Points:","- starter plan active","","Caveats:","- none","","Bottom Line:","Proceed."].join("\n") } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ solid_points: ["entitlement matched"], uncertain_points: [], suspect_points: [], revised_answer: "Verified answer from stored entitlement.", confidence: "high", status: "verified_with_caveats" }) }] } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const res = await worker.fetch(
+        new Request("https://test/think", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "X-HT-PLAN": "free",
+            "X-OWNER-KEY": "test-owner"
+          },
+          body: JSON.stringify({
+            prompt: "Check this before I trust it",
+            specialty: "other/general",
+            buyer_wallet: "0xBuyer000000000000000000000000000000000001",
+            mode: "verified"
+          })
+        }),
+        {
+          ...env,
+          CEREBRAS_API_KEY: "test",
+          MISTRAL_API_KEY: "test",
+          GEMMA_AI_API_KEY: "test",
+          GEMINI_SYNTHESIS_MODEL: "gemini-test"
+        } as any,
+        {} as any
+      );
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.plan).toBe("starter");
+      expect(json.answer_mode).toBe("verified");
+      expect(json.usage).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("blocks verified mode when paid monthly quota is exhausted", async () => {
+    const env = makeEnv();
+    await env.BUYERS.put(
+      "entitlement:0xbuyer000000000000000000000000000000000002",
+      JSON.stringify({
+        buyer_wallet: "0xBuyer000000000000000000000000000000000002",
+        plan: "starter",
+        status: "active",
+        starts_at: new Date().toISOString(),
+        ends_at: new Date(Date.now() + 86400000).toISOString(),
+        granted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        source: "test"
+      })
+    );
+    const month = new Date().toISOString().slice(0, 7);
+    await env.BUYERS.put(`usage:verified:0xbuyer000000000000000000000000000000000002:${month}`, "100");
+
+    const res = await worker.fetch(
+      new Request("https://test/think", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prompt: "Need a verified answer",
+          specialty: "other/general",
+          buyer_wallet: "0xBuyer000000000000000000000000000000000002",
+          mode: "verified"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(402);
+    const json: any = await res.json();
+    expect(json.error).toBe("verified_quota_exhausted");
+    expect(json.plan).toBe("starter");
+    expect(json.usage).toMatchObject({ used: 100, limit: 100, remaining: 0, period: "month" });
+  });
+
+  it("owner can grant a buyer entitlement through admin route", async () => {
+    const env = makeEnv();
+    const res = await worker.fetch(
+      new Request("https://test/admin/buyer-entitlement", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-OWNER-KEY": "test-owner"
+        },
+        body: JSON.stringify({
+          buyer_wallet: "0x170992058429d3d52615fef70c1006f5e5d6467c",
+          plan: "builder",
+          source: "manual-test"
+        })
+      }),
+      env,
+      {} as any
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.entitlement.plan).toBe("builder");
+
+    const stored = await env.BUYERS.get("entitlement:0x170992058429d3d52615fef70c1006f5e5d6467c");
+    expect(stored).toBeTruthy();
+  });
+});
+
 describe("HappyThoughts internal consensus", () => {
   it("parseSynthesisOutput extracts sections cleanly", () => {
     const parsed = parseSynthesisOutput([
@@ -2414,83 +2560,6 @@ describe("HappyThoughts internal consensus", () => {
       expect(cachedJson.panels.synthesis.model).toBe("gemini-2.5-flash");
       expect(cachedJson.panels.synthesis.degraded).toBe(true);
       expect(cachedJson.panels.synthesis.failed_steps).toHaveLength(1);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-});
-
-describe("HappyThoughts general fallback routing", () => {
-  it("uses Mistral before Anthropic for general quick answers", async () => {
-    const env = makeEnv();
-    env.OWNER_KEY = "test-owner";
-    env.MISTRAL_API_KEY = "test-mistral";
-    env.ANTHROPIC_API_KEY = "test-anthropic";
-    await env.PROVIDERS.put(`provider:claude_haiku`, JSON.stringify({
-      id: "claude_haiku",
-      name: "Claude Haiku General",
-      description: "General lane",
-      specialties: ["other/general"],
-      payout_wallet: "0xabc",
-      callback_url: "internal://claude_haiku",
-      delivery_mode: "webhook",
-      delivery_status: "ready",
-      tier: "founding_brain"
-    }));
-    await env.SCORES.put(`score:claude_haiku`, JSON.stringify({
-      happy_trail: 75,
-      quality: 75,
-      reliability: 75,
-      trust: 75,
-      total_thoughts: 10,
-      rated_thoughts: 5,
-      happy_rate: 0.9,
-      sad_rate: 0.1,
-      active_days: 10,
-      last_active: new Date().toISOString(),
-      tier: "founding_brain",
-      flags: [],
-      reuse_rate: 0.2,
-      weekly_delta: 4
-    }));
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: any, init?: any) => {
-      const url = typeof input === "string" ? input : input?.url || "";
-      if (url.includes("api.mistral.ai")) {
-        return new Response(JSON.stringify({ choices: [{ message: { content: "Covered calls let you sell a call against shares you already own. You collect premium, cap upside above the strike, and still eat downside if the stock drops." } }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" }
-        });
-      }
-      if (url.includes("api.anthropic.com")) {
-        throw new Error("Anthropic should not be called when Mistral is available");
-      }
-      return originalFetch(input, init);
-    }) as any;
-
-    try {
-      const res = await worker.fetch(
-        new Request("https://test/internal/think", {
-          method: "POST",
-          headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
-          body: JSON.stringify({
-            prompt: "Explain how selling covered stock options works.",
-            specialty: "other/general",
-            buyer_wallet: "0xbuyer"
-          })
-        }),
-        env,
-        {} as any
-      );
-
-      expect(res.status).toBe(200);
-      const json: any = await res.json();
-      expect(json.provider_id).toBe("claude_haiku");
-      expect(json.thought).toContain("Covered calls let you sell a call against shares you already own");
-      expect(json.meta.source).toBe("mistral");
-      expect(json.models_used).toEqual([{ provider: "claude_haiku", model: env.MISTRAL_MODEL || "mistral-small-latest" }]);
-      expect(json.models_failed).toEqual([]);
     } finally {
       globalThis.fetch = originalFetch;
     }

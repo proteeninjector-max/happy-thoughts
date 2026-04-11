@@ -572,12 +572,159 @@ function allowAdminUi(request: Request): boolean {
 type PlanTier = "free" | "starter" | "builder" | "pro";
 type AnswerMode = "quick" | "consensus" | "verified";
 
-function resolvePlanTier(request: Request, body: any): PlanTier {
-  const headerPlan = request.headers.get("X-HT-PLAN")?.trim().toLowerCase();
-  const bodyPlan = typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
-  const plan = headerPlan || bodyPlan;
-  if (plan === "starter" || plan === "builder" || plan === "pro") return plan;
+type PlanEntitlementRecord = {
+  buyer_wallet: string;
+  plan: PlanTier;
+  status: "active" | "revoked" | "expired";
+  source?: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  granted_at: string;
+  updated_at: string;
+  granted_by?: string | null;
+};
+
+type UsageSnapshot = {
+  used: number;
+  limit: number;
+  remaining: number;
+  period: "day" | "month";
+};
+
+type PlanConfig = {
+  verifiedMonthlyLimit: number;
+  promptCharLimit: number;
+};
+
+const FREE_CONSENSUS_DAILY_LIMIT = 3;
+const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
+  free: { verifiedMonthlyLimit: 0, promptCharLimit: 4000 },
+  starter: { verifiedMonthlyLimit: 100, promptCharLimit: 6000 },
+  builder: { verifiedMonthlyLimit: 300, promptCharLimit: 12000 },
+  pro: { verifiedMonthlyLimit: 1000, promptCharLimit: 24000 }
+};
+
+function isPlanTier(value: unknown): value is PlanTier {
+  return value === "free" || value === "starter" || value === "builder" || value === "pro";
+}
+
+function getPlanConfig(plan: PlanTier): PlanConfig {
+  return PLAN_CONFIG[plan] || PLAN_CONFIG.free;
+}
+
+function getUtcDayKey(now = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+function getUtcMonthKey(now = new Date()): string {
+  return now.toISOString().slice(0, 7);
+}
+
+function freeConsensusUsageKey(buyerWallet: string, dayKey = getUtcDayKey()): string {
+  return `usage:free-consensus:${buyerWallet.toLowerCase()}:${dayKey}`;
+}
+
+function verifiedUsageKey(buyerWallet: string, monthKey = getUtcMonthKey()): string {
+  return `usage:verified:${buyerWallet.toLowerCase()}:${monthKey}`;
+}
+
+function buyerEntitlementKey(buyerWallet: string): string {
+  return `entitlement:${buyerWallet.toLowerCase()}`;
+}
+
+async function getFreeConsensusUsage(env: Env, buyerWallet: string): Promise<number> {
+  const raw = await env.BUYERS.get(freeConsensusUsageKey(buyerWallet));
+  return Number(raw || "0") || 0;
+}
+
+async function incrementFreeConsensusUsage(env: Env, buyerWallet: string): Promise<number> {
+  const next = (await getFreeConsensusUsage(env, buyerWallet)) + 1;
+  await env.BUYERS.put(freeConsensusUsageKey(buyerWallet), String(next));
+  return next;
+}
+
+function freeQuotaResponse(plan: PlanTier, used: number): Response {
+  return jsonResponse({
+    error: "free_quota_exhausted",
+    message: "Free consensus is capped at 3 answers per day.",
+    answer_mode: "consensus",
+    plan,
+    usage: {
+      used,
+      limit: FREE_CONSENSUS_DAILY_LIMIT,
+      remaining: Math.max(0, FREE_CONSENSUS_DAILY_LIMIT - used),
+      period: "day"
+    },
+    upgrade_cta: upgradeCta(plan, "paid_consensus")
+  }, 402);
+}
+
+async function getBuyerEntitlement(env: Env, buyerWallet: string): Promise<PlanEntitlementRecord | null> {
+  const raw = await env.BUYERS.get(buyerEntitlementKey(buyerWallet));
+  if (!raw) return null;
+  const record = JSON.parse(raw) as PlanEntitlementRecord;
+  if (!isPlanTier(record?.plan)) return null;
+  if (record.status !== "active") return null;
+  if (record.ends_at) {
+    const endsAt = Date.parse(record.ends_at);
+    if (Number.isFinite(endsAt) && endsAt < Date.now()) return null;
+  }
+  return record;
+}
+
+async function resolvePlanTier(request: Request, body: any, env: Env, buyerWallet: string, isOwner: boolean): Promise<PlanTier> {
+  if (buyerWallet) {
+    const entitlement = await getBuyerEntitlement(env, buyerWallet);
+    if (entitlement?.plan && entitlement.plan !== "free") return entitlement.plan;
+  }
+
+  if (isOwner) {
+    const headerPlan = request.headers.get("X-HT-PLAN")?.trim().toLowerCase();
+    const bodyPlan = typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
+    const plan = headerPlan || bodyPlan;
+    if (plan === "starter" || plan === "builder" || plan === "pro") return plan;
+  }
+
   return "free";
+}
+
+async function getVerifiedUsage(env: Env, buyerWallet: string): Promise<number> {
+  const raw = await env.BUYERS.get(verifiedUsageKey(buyerWallet));
+  return Number(raw || "0") || 0;
+}
+
+async function incrementVerifiedUsage(env: Env, buyerWallet: string): Promise<number> {
+  const next = (await getVerifiedUsage(env, buyerWallet)) + 1;
+  await env.BUYERS.put(verifiedUsageKey(buyerWallet), String(next));
+  return next;
+}
+
+function buildUsageSnapshot(limit: number, used: number, period: "day" | "month"): UsageSnapshot {
+  return {
+    used,
+    limit,
+    remaining: Math.max(0, limit - used),
+    period
+  };
+}
+
+function verifiedQuotaResponse(plan: PlanTier, used: number): Response {
+  const limit = getPlanConfig(plan).verifiedMonthlyLimit;
+  return jsonResponse({
+    error: "verified_quota_exhausted",
+    message: `Your ${plan} plan has used all verified answers for this month.`,
+    answer_mode: "verified",
+    plan,
+    usage: buildUsageSnapshot(limit, used, "month"),
+    upgrade_cta: plan === "pro" ? null : upgradeCta(plan, "verified")
+  }, 402);
+}
+
+async function buildVerifiedUsageSnapshot(env: Env, buyerWallet: string, plan: PlanTier): Promise<UsageSnapshot | null> {
+  const limit = getPlanConfig(plan).verifiedMonthlyLimit;
+  if (!limit) return null;
+  const used = await getVerifiedUsage(env, buyerWallet);
+  return buildUsageSnapshot(limit, used, "month");
 }
 
 function resolveAnswerMode(body: any, plan: PlanTier, isOwner: boolean): AnswerMode {
@@ -1029,12 +1176,21 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
   const minConfidence = Number(body?.min_confidence ?? "0") || 0;
   const ownerRequest = isOwnerRequest(request, env);
-  const plan = resolvePlanTier(request, body);
-  const mode = resolveAnswerMode(body, plan, ownerRequest);
-  let specialty = typeof body?.specialty === "string" ? body.specialty.trim() : "";
 
   if (!prompt) return badRequest("prompt is required");
   if (!buyerWallet) return badRequest("buyer_wallet is required");
+
+  const plan = await resolvePlanTier(request, body, env, buyerWallet, ownerRequest);
+  const mode = resolveAnswerMode(body, plan, ownerRequest);
+  let specialty = typeof body?.specialty === "string" ? body.specialty.trim() : "";
+  const promptLimit = getPlanConfig(plan).promptCharLimit;
+  if (prompt.length > promptLimit) {
+    return badRequest(`prompt exceeds ${promptLimit} characters for the ${plan} plan`, {
+      prompt_length: prompt.length,
+      prompt_limit: promptLimit,
+      plan
+    });
+  }
 
   if (!specialty) {
     try {
@@ -1060,6 +1216,13 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       plan,
       upgrade_cta: upgradeCta(plan, "verified")
     }, 402);
+  }
+
+  const verifiedMonthlyLimit = getPlanConfig(plan).verifiedMonthlyLimit;
+  const enforceVerifiedQuota = mode === "verified" && plan !== "free" && !ownerRequest;
+  const verifiedUsageBefore = enforceVerifiedQuota ? await getVerifiedUsage(env, buyerWallet) : 0;
+  if (enforceVerifiedQuota && verifiedUsageBefore >= verifiedMonthlyLimit) {
+    return verifiedQuotaResponse(plan, verifiedUsageBefore);
   }
 
   const promptHash = await sha256Hex(normalizePrompt(prompt));
@@ -1239,7 +1402,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
         answer_mode: cachedMode === "quick" && plan === "free" && !ownerRequest ? "consensus" : cachedMode,
         mode: cachedMode === "quick" && plan === "free" && !ownerRequest ? "consensus" : cachedMode,
         plan,
-        usage: enforceFreeQuota ? { used: usageAfter, limit: FREE_CONSENSUS_DAILY_LIMIT, period: "day" } : null,
+        usage: enforceFreeQuota ? buildUsageSnapshot(FREE_CONSENSUS_DAILY_LIMIT, usageAfter, "day") : (mode === "verified" ? await buildVerifiedUsageSnapshot(env, buyerWallet, plan) : null),
         thought: cached.response,
         provider_id: cached.provider_id,
         provider_score: cached.provider_score ?? null,
@@ -1321,12 +1484,14 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     };
 
     await env.THOUGHTS.put(`verified:${verifiedId}`, JSON.stringify(lineageRecord));
+    const verifiedUsageAfter = enforceVerifiedQuota ? await incrementVerifiedUsage(env, buyerWallet) : verifiedUsageBefore;
 
     return ok({
       thought_id: verifiedId,
       answer_mode: "verified",
       mode: "verified",
       plan,
+      usage: enforceVerifiedQuota ? buildUsageSnapshot(verifiedMonthlyLimit, verifiedUsageAfter, "month") : null,
       thought: verification.revised_answer,
       specialty,
       price_paid: price,
@@ -1512,11 +1677,14 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       };
     });
 
+    const usageAfter = enforceFreeQuota ? await incrementFreeConsensusUsage(env, buyerWallet) : usageBefore;
+
     return ok({
       thought_id: consensusId,
       answer_mode: "consensus",
       mode: "consensus",
       plan,
+      usage: enforceFreeQuota ? buildUsageSnapshot(FREE_CONSENSUS_DAILY_LIMIT, usageAfter, "day") : null,
       thought: finalStructured.blended_answer,
       specialty,
       price_paid: price,
@@ -1771,6 +1939,79 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       meta: quickMeta
     }),
     meta: quickMeta
+  });
+}
+
+async function handleBuyerEntitlementUpsert(request: Request, env: Env): Promise<Response> {
+  if (!isOwnerRequest(request, env)) {
+    return jsonResponse({ error: "unauthorized" }, 401);
+  }
+
+  let body: any;
+  try {
+    body = await request.clone().json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
+  if (!isValidWallet(buyerWallet)) return badRequest("buyer_wallet must be a valid EVM address");
+
+  const rawPlan = typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
+  if (!isPlanTier(rawPlan)) return badRequest("plan must be free|starter|builder|pro");
+
+  let startsAt = new Date().toISOString();
+  if (typeof body?.starts_at === "string" && body.starts_at.trim()) {
+    const parsed = Date.parse(body.starts_at);
+    if (!Number.isFinite(parsed)) return badRequest("starts_at must be a valid ISO timestamp");
+    startsAt = new Date(parsed).toISOString();
+  }
+
+  let endsAt: string | null = rawPlan === "free" ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  if (typeof body?.ends_at === "string" && body.ends_at.trim()) {
+    const parsed = Date.parse(body.ends_at);
+    if (!Number.isFinite(parsed)) return badRequest("ends_at must be a valid ISO timestamp");
+    endsAt = new Date(parsed).toISOString();
+  }
+
+  const nowIso = new Date().toISOString();
+  const status = body?.status === "revoked" ? "revoked" : (rawPlan === "free" ? "expired" : "active");
+  const record: PlanEntitlementRecord = {
+    buyer_wallet: buyerWallet,
+    plan: rawPlan,
+    status,
+    source: normalizeOptionalString(body?.source, 120),
+    starts_at: startsAt,
+    ends_at: endsAt,
+    granted_at: nowIso,
+    updated_at: nowIso,
+    granted_by: "owner"
+  };
+
+  await env.BUYERS.put(buyerEntitlementKey(buyerWallet), JSON.stringify(record));
+
+  return ok({ status: "ok", entitlement: record });
+}
+
+async function handleBuyerEntitlementGet(request: Request, env: Env): Promise<Response> {
+  if (!isOwnerRequest(request, env)) {
+    return jsonResponse({ error: "unauthorized" }, 401);
+  }
+
+  const url = new URL(request.url);
+  const buyerWallet = url.searchParams.get("buyer_wallet")?.trim() || "";
+  if (!isValidWallet(buyerWallet)) return badRequest("buyer_wallet must be a valid EVM address");
+
+  const entitlement = await getBuyerEntitlement(env, buyerWallet);
+  const raw = await env.BUYERS.get(buyerEntitlementKey(buyerWallet));
+  const storedEntitlement = raw ? JSON.parse(raw) : null;
+  const usagePlan = entitlement?.plan || (storedEntitlement?.plan && isPlanTier(storedEntitlement.plan) ? storedEntitlement.plan : "free");
+
+  return ok({
+    buyer_wallet: buyerWallet,
+    entitlement,
+    stored_entitlement: storedEntitlement,
+    verified_usage: await buildVerifiedUsageSnapshot(env, buyerWallet, usagePlan)
   });
 }
 
@@ -3396,6 +3637,14 @@ export default {
     if (request.method === "GET" && url.pathname.startsWith("/referral/")) {
       const wallet = url.pathname.slice("/referral/".length);
       return handleGetReferral(wallet, env);
+    }
+
+    if (request.method === "GET" && url.pathname === "/admin/buyer-entitlement") {
+      return handleBuyerEntitlementGet(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/admin/buyer-entitlement") {
+      return handleBuyerEntitlementUpsert(request, env);
     }
 
     if (request.method === "GET" && url.pathname === "/internal/shill-template") {
