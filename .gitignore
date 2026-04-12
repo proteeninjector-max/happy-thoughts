@@ -1,3 +1,5 @@
 node_modules/
 .wrangler/
 .env
+.env.*
+worker-configuration.d.ts

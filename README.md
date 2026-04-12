@@ -1,125 +1,110 @@
 # Happy Thoughts
 
-Free consensus answers first. Paid verification when trust matters.
+Happy Thoughts is an answer product built around a simple split:
 
-## Product Modes
+- **Consensus** helps users think
+- **Verified** helps users trust
+
+The public-facing idea is not “pick the right model.”
+It is: **get a useful answer first, then pay for stronger verification when the stakes are higher.**
+
+## Product framing
 
 ### Consensus
-- Public/default answer mode
-- Multi-answer comparison + synthesis
-- Intended for free/capped usage tiers
-- Returns one blended answer with confidence and caveats
+Free or capped entry path.
+
+Consensus compares multiple model responses, synthesizes them into a single answer, and returns confidence plus caveats. It is designed for:
+- everyday questions
+- exploratory thinking
+- low-stakes decision support
+- broad accessibility
 
 ### Verified
-- Paid trust layer
-- Runs additional verification / fact-check style review
-- Intended for higher-stakes prompts
-- Returns revised answer + verification metadata
+Paid trust layer.
 
-## Current Consensus v1 Stack
+Verified is the higher-assurance branch for prompts where factual confidence matters more than speed or cost. It is designed for:
+- fact-checking style review
+- higher-stakes prompts
+- stronger trust signaling
+- premium UX and billing paths
 
-The consensus stack is now runtime-configurable through env vars, so provider/model swaps stay surgical instead of turning into worker surgery.
+## What this repo contains
 
-### First-response panel
-- Cerebras — `CEREBRAS_MODEL` (default `llama3.1-8b`)
-- Mistral — `MISTRAL_MODEL` (default `mistral-small-latest`)
-- Google Gemma — `GEMMA_MODEL` (default `gemma-4-31b-it`)
+- Cloudflare Worker application code
+- answer routing and synthesis logic
+- plan / entitlement scaffolding
+- provider registration + hosted provider plumbing
+- billing and activation flows
+- legal/public product documents
+- tests for core behavior and regressions
 
-### Synthesis layer
-- Google Gemini — `GEMINI_SYNTHESIS_MODEL` (default `gemini-2.5-flash`)
-- Mistral fallback — `MISTRAL_SYNTHESIS_MODEL` (defaults to `MISTRAL_MODEL`)
+## What makes the project interesting
 
-## Reliability Rules
+- productized multi-model orchestration
+- free-to-paid answer ladder
+- hosted provider marketplace direction
+- quota and entitlement enforcement
+- graceful degradation when providers fail
+- worker-native deployment model
 
-Consensus mode is designed to degrade gracefully.
+## Current implemented direction
 
-- If all panel models succeed, confidence can remain high.
-- If one panel model fails, the request should still complete and confidence should be reduced.
-- If two panel models fail, the request should still return the best available degraded answer when possible, with lower confidence.
-- If every panel model fails, the request fails.
+- public requests default toward **Consensus**
+- free consensus quota is enforced
+- **Verified** exists as a gated paid path
+- provider supply still exists underneath the product surface
+- PayPal capture flow is hardened to activate only after completed capture
 
-Model failures must be surfaced to the caller through:
-- `confidence`
-- `confidence_reason`
-- `models_failed`
-- `meta.degraded`
-- `meta.failure_count`
+## Reliability model
 
-## Billing / PayPal flow
+Consensus is designed to degrade gracefully.
 
-Paid plans support two paths:
-- x402 for agent-native / onchain activation
-- PayPal for normal human checkout
+If one provider fails, the request should still complete when possible.
+Failure metadata is surfaced instead of silently pretending everything is perfect.
 
-PayPal flow:
-1. `POST /paypal/create-order`
-2. buyer approves on PayPal
-3. frontend/server calls `POST /paypal/capture-order`
-4. entitlement activates only after capture completes
-5. `POST /paypal/webhook` is accepted as an idempotent completion path for capture-completed events
-
-Required PayPal config:
-- `PAYPAL_CLIENT_ID`
-- `PAYPAL_CLIENT_SECRET`
-- `PAYPAL_WEBHOOK_ID`
-
-Optional:
-- `PAYPAL_ENV` = `sandbox` | `live`
-- `PAYPAL_API_BASE` for tests/overrides
-
-## API Shape
-
-### `POST /think`
-Required fields:
-- `prompt`
-- `buyer_wallet`
-
-Optional fields:
-- `specialty`
-- `mode` (`consensus`, `verified`, or `quick` for compatibility)
-- `min_confidence`
-
-### Common response fields
-- `thought_id`
-- `answer_mode`
-- `thought`
-- `specialty`
-- `price_paid`
-- `cached`
+Important response-level concepts include:
 - `confidence`
 - `confidence_reason`
 - `models_used`
 - `models_failed`
-- `response_time_ms`
-- `disclaimer`
-- `meta`
+- `meta.degraded`
+- `meta.failure_count`
 
-### Consensus meta fields
-- `structured.agreement`
-- `structured.disagreements`
-- `structured.blended_answer`
-- `structured.confidence`
-- `degraded`
-- `failure_count`
-- `failed_providers`
-- `providers`
-- `synthesis_model`
-- `synthesis_provider`
+## Billing paths
 
-## Provider supply still exists
+Happy Thoughts currently supports two activation styles:
+- **x402 / agent-native** flows
+- **PayPal** for conventional checkout
 
-The public product is now framed as Consensus + Verified, but bots and humans can still register and supply answers underneath through hosted/webhook provider flows.
+PayPal activation is capture-based, not approval-only.
+That keeps entitlement activation tied to actual completed payment.
 
-## Internal Testing Route
+## Repo structure
 
-### `POST /internal/consensus`
-Owner-only route for validating the consensus pipeline and storing lineage.
+- `src/` — Worker logic
+- `tests/` — regression coverage
+- `public/` — public site assets
+- `docs/` — product and implementation docs
+- `legal/` — terms, privacy, provider agreement, AUP
 
-Each internal consensus run stores:
-- prompt
-- specialty
-- panel outputs
-- synthesis output
-- structured result
-- degraded/failure metadata
-- final answer
+## Notes on public cleanliness
+
+This repository is strongest when presented as:
+- a product engineering repo
+- a billing + entitlement repo
+- a multi-model answer system
+- a worker-native API/app deployment
+
+Not as “just another wrapper around LLMs.”
+
+## Suggested starting docs
+
+- `docs/PRODUCT_SPEC_2026-04-10.md`
+- `docs/IMPLEMENTATION_CHECKLIST_2026-04-10.md`
+- `docs/SECURITY_HARDENING_2026-04-10.md`
+- `docs/HOSTED_PROVIDER_DELIVERY.md`
+
+## Status
+
+Active product repo with a clear direction:
+**free Consensus, paid Verified, provider infrastructure underneath.**
