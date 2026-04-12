@@ -163,6 +163,84 @@ describe("HappyThoughts Phase 2", () => {
     expect(cachedJson.panels.synthesis).toBeNull();
   });
 
+  it("POST /think free consensus bypasses payment and tracks daily quota", async () => {
+    const env = makeEnv();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("api.cerebras.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Free consensus should work.","","Key Points:","- no x402 on free tier","","Caveats:","- quota applies","","Bottom Line:","Ship it."].join("\n") } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("api.mistral.ai") && url.includes("chat/completions")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Consensus is free within quota.","","Key Points:","- paid verified stays separate","","Caveats:","- none","","Bottom Line:","Good."].join("\n") } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ agreement: ["free consensus works"], disagreements: [], blended_answer: "Free consensus answer.", confidence: "high", specialty: "General" }) }] } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const body = JSON.stringify({
+        prompt: "Why make consensus free?",
+        specialty: "trading/signals",
+        buyer_wallet: "0xfreebuyer"
+      });
+      const res = await worker.fetch(
+        new Request("https://test/think", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body
+        }),
+        {
+          ...env,
+          CEREBRAS_API_KEY: "test",
+          MISTRAL_API_KEY: "test",
+          GEMMA_AI_API_KEY: "test",
+          GEMINI_SYNTHESIS_MODEL: "gemini-test"
+        } as any,
+        {} as any
+      );
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.answer_mode).toBe("consensus");
+      expect(json.price_paid).toBe(0);
+      expect(json.usage).toMatchObject({ used: 1, limit: 3, remaining: 2, period: "day" });
+
+      const cachedRes = await worker.fetch(
+        new Request("https://test/think", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body
+        }),
+        {
+          ...env,
+          CEREBRAS_API_KEY: "test",
+          MISTRAL_API_KEY: "test",
+          GEMMA_AI_API_KEY: "test",
+          GEMINI_SYNTHESIS_MODEL: "gemini-test"
+        } as any,
+        {} as any
+      );
+      expect(cachedRes.status).toBe(200);
+      const cachedJson: any = await cachedRes.json();
+      expect(cachedJson.cached).toBe(true);
+      expect(cachedJson.price_paid).toBe(0);
+      expect(cachedJson.usage).toMatchObject({ used: 2, limit: 3, remaining: 1, period: "day" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("POST /think missing prompt returns 400", async () => {
     const env = makeEnv();
     const body = JSON.stringify({ buyer_wallet: "0xbuyer" });

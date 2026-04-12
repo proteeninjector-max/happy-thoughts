@@ -1276,8 +1276,9 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
     const cachedAt = cached?.created_at ? new Date(cached.created_at).getTime() : 0;
     const ttlMs = getCacheTtlMs(cached.specialty || specialty);
     if (cachedAt && Date.now() - cachedAt <= ttlMs) {
-      const cachedPrice = Number((cached.price_paid * 0.6).toFixed(4));
-      if (!isOwnerRequest(request, env)) {
+      const isFreeConsensusRequest = plan === "free" && !ownerRequest && mode === "consensus";
+      const cachedPrice = isFreeConsensusRequest ? 0 : Number((cached.price_paid * 0.6).toFixed(4));
+      if (!isOwnerRequest(request, env) && cachedPrice > 0) {
         const payment = await verifyX402Payment(
           request,
           env,
@@ -1602,8 +1603,8 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   }
 
   if (mode === "consensus") {
-    const price = 0.03;
-    if (!isOwnerRequest(request, env)) {
+    const price = plan === "free" && !ownerRequest ? 0 : 0.03;
+    if (!isOwnerRequest(request, env) && price > 0) {
       const payment = await verifyX402Payment(request, env, price, "Happy Thoughts consensus answer");
       if (!payment.ok) return payment.response;
     }
