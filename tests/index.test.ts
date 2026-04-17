@@ -2038,6 +2038,7 @@ describe("HappyThoughts plan entitlements", () => {
       expect(json.confidence).toBe("low");
       expect(json.thought).toMatch(/lower-confidence review/i);
       expect(json.thought).not.toMatch(/Best available answer:/i);
+      expect(json.thought).toMatch(/\n- /);
       expect(json.verification.uncertain_points.join(" ")).toMatch(/providers were unavailable|partially unavailable/i);
     } finally {
       globalThis.fetch = originalFetch;

@@ -416,6 +416,11 @@ function conciseVerifiedAnswer(text: string): string {
   return paragraphs.slice(0, 2).join("\n\n");
 }
 
+function conciseVerifiedFallbackBullets(summary: string, thought: string): string {
+  const claims = splitIntoClaims(thought).slice(0, 3);
+  return [summary, ...claims.map((c) => `- ${c}`)].join("\n");
+}
+
 function parseVerifiedAssessment(output: string, fallbackThought: string, fallbackConfidence: "low" | "medium" | "high"): VerifiedAssessment {
   const normalized = output.replace(/\r\n/g, "\n").trim();
   const solidMatch = normalized.match(/Solid Points:\s*([\s\S]*?)(?:\n\s*Uncertain Points:|$)/i);
@@ -498,7 +503,7 @@ async function runVerifiedAssessment(thought: string, specialty: string, consens
       ...(riskSensitive ? ["High-stakes domain: independent verification is still recommended."] : [])
     ].slice(0, 4),
     suspect_points: lowConfidence ? ["Consensus confidence is low, so some claims may be overstated, incomplete, or unverified."] : [],
-    revised_answer: conciseVerifiedAnswer(`${fallbackSummary}\n\n${thought}`),
+    revised_answer: conciseVerifiedFallbackBullets(fallbackSummary, thought),
     confidence: lowConfidence ? "low" : consensusConfidence,
     status: "verified_with_caveats"
   };
