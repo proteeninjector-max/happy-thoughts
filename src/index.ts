@@ -455,7 +455,7 @@ function buildVerificationPrompt(thought: string, specialty: string, disagreemen
     "Suspect Points:",
     "- bullets (or '- None material.')",
     "Revised Answer:",
-    "1-3 short paragraphs that stay faithful to the original answer",
+    "Either 2-4 short bullets or 1 short paragraph that stays faithful to the original answer",
     "Confidence: low|medium|high",
     `Specialty: ${specialty}`,
     "Consensus answer to verify:",
@@ -4269,4 +4269,3 @@ export interface Env {
   MAX_CONSENSUS_OUTPUT_TOKENS?: string;
   MAX_VERIFIED_OUTPUT_TOKENS?: string;
 }
-
