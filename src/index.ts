@@ -404,6 +404,18 @@ function parseVerifierList(section: string): string[] {
     .filter(Boolean);
 }
 
+function conciseVerifiedAnswer(text: string): string {
+  const cleaned = trimText(text)
+    .replace(/^\*+\s*/gm, "")
+    .replace(/^Revised Answer:\s*/i, "")
+    .replace(/^\s*---\s*$/gm, "")
+    .replace(/\*\*Confidence:\*\*.*$/gim, "")
+    .replace(/\*\*Specialty:\*\*.*$/gim, "")
+    .trim();
+  const paragraphs = cleaned.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  return paragraphs.slice(0, 2).join("\n\n");
+}
+
 function parseVerifiedAssessment(output: string, fallbackThought: string, fallbackConfidence: "low" | "medium" | "high"): VerifiedAssessment {
   const normalized = output.replace(/\r\n/g, "\n").trim();
   const solidMatch = normalized.match(/Solid Points:\s*([\s\S]*?)(?:\n\s*Uncertain Points:|$)/i);
@@ -486,7 +498,7 @@ async function runVerifiedAssessment(thought: string, specialty: string, consens
       ...(riskSensitive ? ["High-stakes domain: independent verification is still recommended."] : [])
     ].slice(0, 4),
     suspect_points: lowConfidence ? ["Consensus confidence is low, so some claims may be overstated, incomplete, or unverified."] : [],
-    revised_answer: `${fallbackSummary}\n\nBest available answer:\n${thought}`,
+    revised_answer: conciseVerifiedAnswer(`${fallbackSummary}\n\n${thought}`),
     confidence: lowConfidence ? "low" : consensusConfidence,
     status: "verified_with_caveats"
   };
@@ -1505,6 +1517,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
       finalStructured.disagreements,
       env
     );
+    verification.revised_answer = conciseVerifiedAnswer(verification.revised_answer);
     const confidenceReason = verification.uncertain_points.length
       ? `Verified answer completed with caveats from the ${verifier.provider} verification layer.`
       : `Verified answer completed with the ${verifier.provider} verification layer.`;
