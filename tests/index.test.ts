@@ -1991,6 +1991,58 @@ describe("HappyThoughts plan entitlements", () => {
     }
   });
 
+  it("verified fallback stays clearly caveated when verification providers fail", async () => {
+    const env = makeEnv();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("api.cerebras.ai")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Consensus says trust should increase with verification.","","Key Points:","- free gets breadth","- paid gets stronger review","","Caveats:","- some uncertainty remains","","Bottom Line:","Use verification when stakes are higher."].join("\n") } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("api.mistral.ai") && url.includes("chat/completions")) {
+        return new Response(JSON.stringify({ error: { message: "capacity" } }), { status: 429, headers: { "content-type": "application/json" } });
+      }
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({ error: { message: "unavailable" } }), { status: 503, headers: { "content-type": "application/json" } });
+      }
+      return new Response("not mocked", { status: 500 });
+    }) as any;
+
+    try {
+      const res = await worker.fetch(
+        new Request("https://test/think", {
+          method: "POST",
+          headers: { "content-type": "application/json", "X-OWNER-KEY": "test-owner" },
+          body: JSON.stringify({
+            prompt: "Verify this product framing.",
+            specialty: "other/general",
+            buyer_wallet: "0xbuyer",
+            mode: "verified"
+          })
+        }),
+        {
+          ...env,
+          CEREBRAS_API_KEY: "test",
+          MISTRAL_API_KEY: "test",
+          GEMMA_AI_API_KEY: "test",
+          GEMINI_SYNTHESIS_MODEL: "gemini-test"
+        } as any,
+        {} as any
+      );
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.answer_mode).toBe("verified");
+      expect(json.confidence).toBe("low");
+      expect(json.thought).toMatch(/lower-confidence review/i);
+      expect(json.verification.uncertain_points.join(" ")).toMatch(/providers were unavailable|partially unavailable/i);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("blocks verified mode when paid monthly quota is exhausted", async () => {
     const env = makeEnv();
     await env.BUYERS.put(

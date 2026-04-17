@@ -426,8 +426,10 @@ function buildVerificationPrompt(thought: string, specialty: string, disagreemen
   const disagreementBlock = disagreements.length ? disagreements.map((x) => `- ${x}`).join("\n") : "- None material.";
   return [
     "You are the verification layer for Happy Thoughts.",
-    "Review the consensus answer and return a careful verification summary.",
-    "Do not invent citations. Do not claim certainty you do not have.",
+    "Your job is to critique and refine the provided consensus answer — not to answer a different question.",
+    "Stay tightly anchored to the exact claims in the consensus answer.",
+    "Do not invent citations. Do not add new product features, new facts, or unrelated framing.",
+    "If the answer is too vague to verify cleanly, say that in Uncertain Points and keep the Revised Answer conservative.",
     "Use this exact structure:",
     "Solid Points:",
     "- bullets",
@@ -436,10 +438,10 @@ function buildVerificationPrompt(thought: string, specialty: string, disagreemen
     "Suspect Points:",
     "- bullets (or '- None material.')",
     "Revised Answer:",
-    "1-3 short paragraphs",
+    "1-3 short paragraphs that stay faithful to the original answer",
     "Confidence: low|medium|high",
     `Specialty: ${specialty}`,
-    "Consensus answer:",
+    "Consensus answer to verify:",
     thought,
     "Consensus disagreements/caveats:",
     disagreementBlock
