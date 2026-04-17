@@ -903,7 +903,7 @@ async function generateTradingThought(prompt: string, specialty: string, env: En
     },
     body: JSON.stringify({
       model: benchmarkModel,
-      max_tokens: 500,
+      max_tokens: envInt(env.MAX_VERIFIED_OUTPUT_TOKENS, DEFAULT_MAX_VERIFIED_OUTPUT_TOKENS),
       system: "You are a specialized crypto trading copilot producing tight first-response trade intelligence.",
       messages: [
         {
@@ -4264,5 +4264,9 @@ export interface Env {
   PAYPAL_WEBHOOK_ID?: string;
   PAYPAL_ENV?: "sandbox" | "live";
   PAYPAL_API_BASE?: string;
+  MAX_PROMPT_CHARS?: string;
+  MAX_VERIFIED_PROMPT_CHARS?: string;
+  MAX_CONSENSUS_OUTPUT_TOKENS?: string;
+  MAX_VERIFIED_OUTPUT_TOKENS?: string;
 }
 
