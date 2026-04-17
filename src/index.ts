@@ -472,15 +472,20 @@ async function runVerifiedAssessment(thought: string, specialty: string, consens
   }
 
   const riskSensitive = /^(finance|trading|legal|medicine|engineering)\//.test(specialty);
+  const lowConfidence = consensusConfidence === "low";
+  const fallbackSummary = lowConfidence
+    ? "Verification providers were unavailable, so this answer should be treated as a lower-confidence review rather than a fully verified result."
+    : "Verification providers were partially unavailable, so this answer includes caveats and should be treated with some caution.";
   const assessment: VerifiedAssessment = {
     solid_points: splitIntoClaims(thought).slice(0, 3),
     uncertain_points: [
       ...disagreements.slice(0, 3),
+      fallbackSummary,
       ...(riskSensitive ? ["High-stakes domain: independent verification is still recommended."] : [])
-    ].slice(0, 3),
-    suspect_points: consensusConfidence === "low" ? ["Consensus confidence is low, so some claims may be overstated or incomplete."] : [],
-    revised_answer: thought,
-    confidence: consensusConfidence,
+    ].slice(0, 4),
+    suspect_points: lowConfidence ? ["Consensus confidence is low, so some claims may be overstated, incomplete, or unverified."] : [],
+    revised_answer: `${fallbackSummary}\n\nBest available answer:\n${thought}`,
+    confidence: lowConfidence ? "low" : consensusConfidence,
     status: "verified_with_caveats"
   };
   return {
