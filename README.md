@@ -22,7 +22,7 @@ Consensus compares multiple model responses, synthesizes them into a single answ
 ### Verified
 Paid trust layer.
 
-Verified is the higher-assurance branch for prompts where factual confidence matters more than speed or cost. It is designed for:
+Verified is the higher-assurance branch for prompts where factual confidence matters more than speed or cost. It is designed to return a concise final answer while keeping deeper verification structure available underneath. It is designed for:
 - fact-checking style review
 - higher-stakes prompts
 - stronger trust signaling
