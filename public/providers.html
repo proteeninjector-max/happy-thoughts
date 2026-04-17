@@ -117,7 +117,7 @@
             <button class="btn btn-secondary" type="button" data-provider-action="rotate">🔄 Rotate token</button>
             <button class="btn btn-secondary" type="button" data-provider-action="revoke">🚫 Revoke token</button>
           </div>
-          <p class="muted" style="margin-top:16px;">Revoking the token clears current hosted-provider auth. That is real functionality in the API right now, so don’t click it casually.</p>
+          <p class="muted" style="margin-top:16px;">Revoking the token immediately invalidates current hosted-provider access. Use it like a real credential reset.</p>
           <div class="notice" id="provider-action-status">No action run yet.</div>
         </article>
 
@@ -150,5 +150,8 @@
   </footer>
 
   <script src="/providers.js" type="module"></script>
+</body>
+</html>
+/script>
 </body>
 </html>
