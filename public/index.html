@@ -135,9 +135,9 @@
         <div class="section-header">
           <div>
             <div class="eyebrow">Buyer plans</div>
-            <h2>Simple plans with live usage and upgrade paths.</h2>
+            <h2>Simple plans for higher-confidence answers.</h2>
           </div>
-          <p class="section-copy">This section reads <span class="mono">/plans</span> and <span class="mono">/me/plan</span> directly. Prices, limits, and usage snapshots come from the backend, not stale frontend copy.</p>
+          <p class="section-copy">Start free with consensus. Upgrade when you want deeper fact-checking and blended review.</p>
         </div>
 
         <div class="plans-grid" id="plans-grid">
@@ -147,79 +147,12 @@
         <article class="card buyer-console glass">
           <div class="buyer-console-header">
             <div>
-              <div class="eyebrow">Check your current plan</div>
-              <h3>Buyer plan snapshot</h3>
+              <div class="eyebrow">Checkout</div>
+              <h3>PayPal for human buyers</h3>
             </div>
-            <div class="badge" id="buyer-plan-badge">Awaiting wallet</div>
+            <div class="badge">Coming online</div>
           </div>
-
-          <form class="token-form" id="buyer-plan-form">
-            <div class="field-group">
-              <label class="field-label" for="buyer-wallet">Buyer wallet</label>
-              <input id="buyer-wallet" class="field" type="text" placeholder="0x..." autocomplete="off" />
-            </div>
-            <div class="cta-row" style="margin-top:0;">
-              <button class="btn btn-primary" type="submit">Load plan</button>
-              <button class="btn btn-secondary" type="button" id="buyer-plan-clear">Clear</button>
-            </div>
-          </form>
-
-          <div class="notice" id="buyer-plan-status">Paste a wallet to load live plan and quota data.</div>
-
-          <div class="plan-stats" id="buyer-plan-stats">
-            <div class="stat-box"><div class="stat-label">Resolved Plan</div><div class="stat-value" id="buyer-current-plan">—</div></div>
-            <div class="stat-box"><div class="stat-label">Monthly Price</div><div class="stat-value" id="buyer-current-price">—</div></div>
-            <div class="stat-box"><div class="stat-label">Verified Monthly</div><div class="stat-value" id="buyer-verified-quota">—</div></div>
-            <div class="stat-box"><div class="stat-label">Prompt Limit</div><div class="stat-value" id="buyer-prompt-limit">—</div></div>
-            <div class="stat-box"><div class="stat-label">Free Consensus Today</div><div class="stat-value" id="buyer-free-usage">—</div></div>
-            <div class="stat-box"><div class="stat-label">Verified This Month</div><div class="stat-value" id="buyer-verified-usage">—</div></div>
-          </div>
-
-          <pre class="code-block" id="buyer-plan-json">No buyer plan loaded yet.</pre>
-        </article>
-
-        <article class="card buyer-console glass">
-          <div class="buyer-console-header">
-            <div>
-              <div class="eyebrow">Upgrade / activation</div>
-              <h3>Buy a plan</h3>
-            </div>
-            <div class="badge" id="purchase-flow-badge">Idle</div>
-          </div>
-
-          <form class="token-form" id="activate-plan-form">
-            <div class="plans-grid">
-              <div class="field-group">
-                <label class="field-label" for="activate-wallet">Buyer wallet</label>
-                <input id="activate-wallet" class="field" type="text" placeholder="0x..." autocomplete="off" />
-              </div>
-              <div class="field-group">
-                <label class="field-label" for="activate-plan">Plan</label>
-                <select id="activate-plan" class="field">
-                  <option value="starter">starter</option>
-                  <option value="builder">builder</option>
-                  <option value="pro">pro</option>
-                </select>
-              </div>
-              <div class="field-group">
-                <label class="field-label" for="activate-months">Months</label>
-                <input id="activate-months" class="field" type="number" min="1" max="12" step="1" value="1" />
-              </div>
-              <div class="field-group">
-                <label class="field-label" for="activate-signature">PAYMENT-SIGNATURE (optional on first submit)</label>
-                <input id="activate-signature" class="field" type="text" placeholder="base64 x402 signature" autocomplete="off" />
-              </div>
-            </div>
-            <div class="cta-row" style="margin-top:0;">
-              <button class="btn btn-primary" type="submit">Start / retry x402 activation</button>
-              <button class="btn btn-secondary" type="button" id="paypal-checkout-btn">Pay with PayPal</button>
-              <button class="btn btn-secondary" type="button" id="activate-clear">Clear purchase state</button>
-            </div>
-          </form>
-
-          <div class="notice" id="purchase-status">Use x402 for native onchain flows. Use PayPal if you want a normal checkout path.</div>
-          <pre class="code-block" id="payment-required-json">No x402 payment requirement loaded yet.</pre>
-          <pre class="code-block" id="activation-response-json">No activation response yet.</pre>
+          <div class="notice">Human checkout is moving to PayPal so the product feels normal to use. Wallet-native flows stay available in the API and docs for bots.</div>
         </article>
       </div>
     </section>
