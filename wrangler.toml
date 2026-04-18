@@ -26,8 +26,10 @@ X402_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 # PAYPAL_CLIENT_ID
 # PAYPAL_CLIENT_SECRET
 # PAYPAL_WEBHOOK_ID
+# CLERK_SECRET_KEY
 
 # Optional PayPal vars
+# CLERK_PUBLISHABLE_KEY = "pk_live_..."
 # PAYPAL_ENV = "sandbox" # or "live"
 # PAYPAL_API_BASE = "https://api-m.sandbox.paypal.com"
 

@@ -4220,6 +4220,12 @@ export default {
         return handleDocs(request);
       case "GET /preview":
         return handlePreview();
+      case "GET /auth/config":
+        return ok({
+          enabled: Boolean(env.CLERK_PUBLISHABLE_KEY),
+          provider: env.CLERK_PUBLISHABLE_KEY ? "clerk" : null,
+          clerkPublishableKey: env.CLERK_PUBLISHABLE_KEY || null
+        });
       default:
         return notFound();
     }
@@ -4264,6 +4270,8 @@ export interface Env {
   PAYPAL_WEBHOOK_ID?: string;
   PAYPAL_ENV?: "sandbox" | "live";
   PAYPAL_API_BASE?: string;
+  CLERK_PUBLISHABLE_KEY?: string;
+  CLERK_SECRET_KEY?: string;
   MAX_PROMPT_CHARS?: string;
   MAX_VERIFIED_PROMPT_CHARS?: string;
   MAX_CONSENSUS_OUTPUT_TOKENS?: string;

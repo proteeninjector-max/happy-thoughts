@@ -1,6 +1,7 @@
 (() => {
   const API_BASE = "https://happythoughts.proteeninjector.workers.dev";
-  const STORAGE_KEY = "happythoughts_human_buyer_id";
+  const AUTH_STORAGE_KEY = "happythoughts_auth_user";
+  const REDIRECT_KEY = "happythoughts_post_auth_redirect";
   const els = {
     walletStatus: document.getElementById('wallet-status'),
     planBadge: document.getElementById('plan-badge'),
@@ -32,13 +33,26 @@
     return { ok: resp.ok, status: resp.status, data };
   }
 
-  function getBuyerId() {
-    let id = (localStorage.getItem(STORAGE_KEY) || '').trim();
-    if (!id) {
-      id = `human_${crypto.randomUUID()}`;
-      localStorage.setItem(STORAGE_KEY, id);
+  function getAuthUser() {
+    try {
+      return JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || 'null');
+    } catch {
+      return null;
     }
-    return id;
+  }
+
+  function requireAuth() {
+    const user = getAuthUser();
+    if (user?.id) return user;
+    localStorage.setItem(REDIRECT_KEY, '/ask');
+    window.location.href = '/login';
+    return null;
+  }
+
+  function getBuyerId() {
+    const user = getAuthUser();
+    if (!user?.id) return null;
+    return `email:${user.id}`;
   }
 
   function setPlanView(plan) {
@@ -50,20 +64,22 @@
   }
 
   async function refreshPlan() {
+    const user = requireAuth();
+    if (!user) return;
     const buyerId = getBuyerId();
     const { ok, data } = await api(`/me/plan?buyer_wallet=${encodeURIComponent(buyerId)}`);
     if (!ok) {
       setPlanView({ plan: 'free', verified_quota_monthly: 0, prompt_char_limit: 4000, free_consensus_daily_limit: 3 });
       els.planBadge.textContent = 'FREE';
-      els.walletStatus.textContent = 'Ask immediately. Human users should not have to think about wallets just to use consensus.';
+      els.walletStatus.textContent = 'Signed in with email.';
       return;
     }
     const plan = data?.plan || data || {};
     setPlanView(plan);
     els.planBadge.textContent = (plan.plan || 'free').toUpperCase();
     els.walletStatus.textContent = plan.plan === 'free'
-      ? 'You are using the free consensus lane.'
-      : `Paid fact-checking is available on your ${plan.plan} plan.`;
+      ? 'Signed in with email.'
+      : `Signed in with email. Paid fact-checking is available on your ${plan.plan} plan.`;
   }
 
   function renderAnswer(data) {
@@ -99,8 +115,9 @@
 
     els.upgradeGrid.querySelectorAll('.plan-select').forEach((button) => {
       button.addEventListener('click', () => {
-        const buyerId = getBuyerId();
-        els.upgradeStatus.textContent = `Selected ${button.dataset.plan}. PayPal checkout is the next wiring step, and this selection is ready to attach to your human buyer session (${buyerId.slice(0, 12)}…).`;
+        const user = requireAuth();
+        if (!user) return;
+        els.upgradeStatus.textContent = `Selected ${button.dataset.plan}. PayPal checkout will attach this plan to ${user.email || 'your account'}.`;
       });
     });
   }
@@ -123,6 +140,8 @@
 
   els.askForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const user = requireAuth();
+    if (!user) return;
     const buyerId = getBuyerId();
     const prompt = els.prompt.value.trim();
     const specialty = els.specialty.value.trim();
@@ -175,6 +194,7 @@
     els.answerEmpty.textContent = data?.message || 'Could not get an answer right now.';
   });
 
+  requireAuth();
   refreshPlan();
   loadPlans();
 })();

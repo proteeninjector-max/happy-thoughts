@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login — Happy Thoughts</title>
+  <meta name="description" content="Sign in to use Happy Thoughts consensus and fact-checking." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/">
+        <div class="brand-mark">✦</div>
+        <div class="brand-copy">
+          <span>Happy Thoughts</span>
+          <small>ask once • compare fast</small>
+        </div>
+      </a>
+      <nav class="nav">
+        <a href="/">Home</a>
+        <a href="/ask">Ask</a>
+        <a href="/providers">Providers</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="section">
+    <div class="shell" style="max-width:720px;">
+      <article class="card panel glass" style="padding:32px;">
+        <div class="eyebrow">Email login</div>
+        <h1 style="max-width:12ch;margin-top:16px;">One login. Then just ask.</h1>
+        <p class="lead" style="margin-top:18px;max-width:34ch;">Use your email to unlock the free consensus lane and keep your usage tied to a real account.</p>
+        <div id="auth-status" class="notice" style="margin-top:20px;">Loading login…</div>
+        <div id="auth-container" style="margin-top:22px;"></div>
+      </article>
+    </div>
+  </main>
+
+  <script src="/auth.js"></script>
+</body>
+</html>
