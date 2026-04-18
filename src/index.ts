@@ -737,7 +737,7 @@ function verifiedQuotaResponse(plan: PlanTier, used: number): Response {
   const limit = getPlanConfig(plan).verifiedMonthlyLimit;
   return jsonResponse({
     error: "verified_quota_exhausted",
-    message: `Your ${plan} plan has used all verified answers for this month.`,
+    message: `Your ${plan} plan has used all fact-checking requests for this month.`,
     answer_mode: "verified",
     plan,
     usage: buildUsageSnapshot(limit, used, "month"),
@@ -799,10 +799,10 @@ function upgradeCta(plan: PlanTier, target: "verified" | "paid_consensus" = "ver
     current_plan: plan,
     target,
     headline: target === "verified"
-      ? "Upgrade to Verified Answers"
+      ? "Upgrade to Fact-Checking"
       : "Upgrade for higher limits",
     message: target === "verified"
-      ? "Consensus helps you think. Verified answers help you trust."
+      ? "Consensus gives you a fast answer. Fact-checking gives you extra confidence."
       : "Free consensus is capped. Upgrade for higher limits and stronger trust workflows."
   };
 }
@@ -1270,7 +1270,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   if (mode === "verified" && plan === "free" && !ownerRequest) {
     return jsonResponse({
       error: "upgrade_required",
-      message: "Verified answers require a paid plan.",
+      message: "Fact-checking requires a paid plan.",
       answer_mode: "verified",
       plan,
       upgrade_cta: upgradeCta(plan, "verified")
@@ -3057,7 +3057,7 @@ async function handleDocs(request: Request): Promise<Response> {
 
   return ok({
     name: "Happy Thoughts",
-    description: "Free consensus answers first, paid verification when trust matters.",
+    description: "Free consensus answers first, paid fact-checking when confidence matters.",
     version: "1.0.0",
     product_modes: {
       consensus_answer: {
@@ -3101,7 +3101,7 @@ async function handleDocs(request: Request): Promise<Response> {
       optional: ["specialty", "mode", "min_confidence"],
       mode_values: ["consensus", "verified", "quick"],
       min_confidence_note:
-        "For consensus mode, confidence may be reduced automatically if one or more panel models fail. Verified is the paid trust layer."
+        "For consensus mode, confidence may be reduced automatically if one or more panel models fail. Fact-checking is the paid trust layer."
     },
     think_response_fields: {
       top_level: [
