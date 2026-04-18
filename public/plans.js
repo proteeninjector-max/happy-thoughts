@@ -120,7 +120,7 @@ async function loadPlans() {
     const data = await api("/plans");
     renderPlans(data.plans || {});
   } catch (err) {
-    plansGrid.innerHTML = `<article class="card plan-card glass"><div class="plan-name">Failed to load plans</div><div class="plan-meta">${err.message || err}</div></article>`;
+    plansGrid.innerHTML = `<article class="card plan-card glass"><div class="plan-name">Plans unavailable right now</div><div class="plan-meta">We couldn’t load live plan data from the backend. ${err.message || err}</div></article>`;
   }
 }
 
