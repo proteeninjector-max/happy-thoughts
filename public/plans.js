@@ -1,5 +1,8 @@
+(function () {
 const API_BASE = "https://happythoughts.proteeninjector.workers.dev";
 const plansGrid = document.getElementById("plans-grid");
+
+if (!plansGrid) return;
 
 async function api(path) {
   const resp = await fetch(`${API_BASE}${path}`);
@@ -36,3 +39,4 @@ async function loadPlans() {
 }
 
 loadPlans();
+})();
