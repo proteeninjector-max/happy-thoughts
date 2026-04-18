@@ -1,10 +1,7 @@
 (() => {
   const API_BASE = "https://happythoughts.proteeninjector.workers.dev";
-  const STORAGE_KEY = "happythoughts_buyer_wallet";
+  const STORAGE_KEY = "happythoughts_human_buyer_id";
   const els = {
-    walletForm: document.getElementById('wallet-form'),
-    walletInput: document.getElementById('buyer-wallet'),
-    clearWallet: document.getElementById('clear-wallet'),
     walletStatus: document.getElementById('wallet-status'),
     planBadge: document.getElementById('plan-badge'),
     planName: document.getElementById('plan-name'),
@@ -35,13 +32,13 @@
     return { ok: resp.ok, status: resp.status, data };
   }
 
-  function getWallet() {
-    return (localStorage.getItem(STORAGE_KEY) || '').trim();
-  }
-
-  function setWallet(wallet) {
-    if (wallet) localStorage.setItem(STORAGE_KEY, wallet);
-    else localStorage.removeItem(STORAGE_KEY);
+  function getBuyerId() {
+    let id = (localStorage.getItem(STORAGE_KEY) || '').trim();
+    if (!id) {
+      id = `human_${crypto.randomUUID()}`;
+      localStorage.setItem(STORAGE_KEY, id);
+    }
+    return id;
   }
 
   function setPlanView(plan) {
@@ -53,23 +50,20 @@
   }
 
   async function refreshPlan() {
-    const wallet = getWallet();
-    els.walletInput.value = wallet;
-    if (!wallet) {
-      setPlanView({ plan: 'free', verified_quota_monthly: 0, prompt_char_limit: 4000, free_consensus_daily_limit: 3 });
-      els.planBadge.textContent = 'Guest';
-      els.walletStatus.textContent = 'Save a wallet to track free usage now and unlock paid fact-checking later.';
-      return;
-    }
-    const { ok, data } = await api(`/me/plan?buyer_wallet=${encodeURIComponent(wallet)}`);
+    const buyerId = getBuyerId();
+    const { ok, data } = await api(`/me/plan?buyer_wallet=${encodeURIComponent(buyerId)}`);
     if (!ok) {
-      els.walletStatus.textContent = data?.message || 'Could not load your plan yet. Your wallet is still saved locally.';
+      setPlanView({ plan: 'free', verified_quota_monthly: 0, prompt_char_limit: 4000, free_consensus_daily_limit: 3 });
+      els.planBadge.textContent = 'FREE';
+      els.walletStatus.textContent = 'Ask immediately. Human users should not have to think about wallets just to use consensus.';
       return;
     }
     const plan = data?.plan || data || {};
     setPlanView(plan);
     els.planBadge.textContent = (plan.plan || 'free').toUpperCase();
-    els.walletStatus.textContent = `Wallet saved. You are on the ${plan.plan || 'free'} plan.`;
+    els.walletStatus.textContent = plan.plan === 'free'
+      ? 'You are using the free consensus lane.'
+      : `Paid fact-checking is available on your ${plan.plan} plan.`;
   }
 
   function renderAnswer(data) {
@@ -105,12 +99,8 @@
 
     els.upgradeGrid.querySelectorAll('.plan-select').forEach((button) => {
       button.addEventListener('click', () => {
-        const wallet = getWallet();
-        if (!wallet) {
-          els.upgradeStatus.textContent = 'Save your wallet first so checkout can attach the plan to the right buyer.';
-          return;
-        }
-        els.upgradeStatus.textContent = `Selected ${button.dataset.plan}. PayPal checkout is the next wiring step, but this is the plan that will unlock paid fact-checking.`;
+        const buyerId = getBuyerId();
+        els.upgradeStatus.textContent = `Selected ${button.dataset.plan}. PayPal checkout is the next wiring step, and this selection is ready to attach to your human buyer session (${buyerId.slice(0, 12)}…).`;
       });
     });
   }
@@ -124,22 +114,6 @@
     renderPlans(data.plans || {});
   }
 
-  els.walletForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const wallet = els.walletInput.value.trim();
-    if (!wallet) {
-      els.walletStatus.textContent = 'Enter a wallet address first.';
-      return;
-    }
-    setWallet(wallet);
-    await refreshPlan();
-  });
-
-  els.clearWallet.addEventListener('click', async () => {
-    setWallet('');
-    await refreshPlan();
-  });
-
   els.fillExample.addEventListener('click', () => {
     els.prompt.value = 'Compare the best note-taking setup for a founder who lives in Telegram, needs fast capture, and hates bloated tools.';
     els.specialty.value = '';
@@ -149,15 +123,10 @@
 
   els.askForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const wallet = getWallet();
+    const buyerId = getBuyerId();
     const prompt = els.prompt.value.trim();
     const specialty = els.specialty.value.trim();
     const mode = els.mode.value;
-
-    if (!wallet) {
-      els.askStatus.textContent = 'Save your wallet first so we can track free usage and paid access cleanly.';
-      return;
-    }
     if (!prompt) {
       els.askStatus.textContent = 'Ask an actual question first.';
       return;
@@ -166,7 +135,7 @@
     els.askSubmit.disabled = true;
     els.askStatus.textContent = 'Thinking…';
 
-    const body = { prompt, buyer_wallet: wallet, mode };
+    const body = { prompt, buyer_wallet: buyerId, mode };
     if (specialty) body.specialty = specialty;
 
     let result = await api('/think', {

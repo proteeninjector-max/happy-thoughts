@@ -49,21 +49,11 @@
           <div class="status-line" style="justify-content:space-between;margin-bottom:18px;">
             <div>
               <div class="eyebrow">Your access</div>
-              <h3 style="margin-top:12px;">Wallet + plan</h3>
+              <h3 style="margin-top:12px;">Free by default</h3>
             </div>
-            <span class="badge" id="plan-badge">Guest</span>
+            <span class="badge" id="plan-badge">Free</span>
           </div>
-          <form id="wallet-form" class="token-form">
-            <div class="field-group">
-              <label class="field-label" for="buyer-wallet">Wallet</label>
-              <input id="buyer-wallet" class="field" type="text" placeholder="0x..." autocomplete="off" />
-            </div>
-            <div class="inline-actions">
-              <button class="btn btn-primary" type="submit">Save wallet</button>
-              <button class="btn btn-secondary" type="button" id="clear-wallet">Clear</button>
-            </div>
-          </form>
-          <div class="notice" id="wallet-status" style="margin-top:16px;">For now, the buyer app still keys usage and paid access off a wallet. PayPal checkout can sit on top of this without changing the answer flow.</div>
+          <div class="notice" id="wallet-status" style="margin-top:16px;">Ask immediately. Human users should not have to think about wallets just to use consensus.</div>
           <div class="stat-grid">
             <div class="stat-box"><div class="stat-label">Plan</div><div class="stat-value" id="plan-name">free</div></div>
             <div class="stat-box"><div class="stat-label">Fact-checking / month</div><div class="stat-value" id="plan-verified">0</div></div>
