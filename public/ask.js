@@ -1,5 +1,5 @@
 (() => {
-  const API_BASE = "https://happythoughts.proteeninjector.workers.dev";
+  const API_BASE = '';
   const AUTH_STORAGE_KEY = "happythoughts_auth_user";
   const REDIRECT_KEY = "happythoughts_post_auth_redirect";
   let authReady = null;
@@ -29,7 +29,17 @@
   };
 
   async function api(path, init = {}) {
-    const resp = await fetch(`${API_BASE}${path}`, init);
+    const headers = new Headers(init.headers || {});
+    const token = await getClerkToken();
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    const resp = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      credentials: 'same-origin'
+    });
     const data = await resp.json().catch(() => ({}));
     return { ok: resp.ok, status: resp.status, data };
   }

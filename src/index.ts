@@ -1299,12 +1299,6 @@ async function classifySpecialty(prompt: string, env: Env): Promise<string> {
   return "other/general";
 }
 
-function deriveWebBuyerId(request: Request): string {
-  const ip = request.headers.get("cf-connecting-ip") || "unknown";
-  const ua = request.headers.get("user-agent") || "unknown";
-  return `web:${ip}:${ua.slice(0, 80)}`;
-}
-
 async function handleWebAsk(request: Request, env: Env): Promise<Response> {
   const form = await request.formData();
   const auth = await requireHumanAuth(request, env, {
