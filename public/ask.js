@@ -2,6 +2,7 @@
   const API_BASE = "https://happythoughts.proteeninjector.workers.dev";
   const AUTH_STORAGE_KEY = "happythoughts_auth_user";
   const REDIRECT_KEY = "happythoughts_post_auth_redirect";
+  let authReady = null;
   const els = {
     walletStatus: document.getElementById('wallet-status'),
     planBadge: document.getElementById('plan-badge'),
@@ -41,6 +42,49 @@
     }
   }
 
+  async function ensureAuth() {
+    const existing = getAuthUser();
+    if (existing?.id) return existing;
+
+    if (!authReady) {
+      authReady = (async () => {
+        const config = await fetch('/auth/config').then(r => r.json()).catch(() => ({ enabled: false }));
+        if (!config?.enabled || !config?.clerkPublishableKey) return null;
+
+        const encoded = config.clerkPublishableKey.split('_')[2] || '';
+        const clerkDomain = atob(encoded).slice(0, -1);
+
+        await new Promise((resolve, reject) => {
+          const existingScript = Array.from(document.scripts).find((s) => s.src.includes(clerkDomain));
+          if (existingScript && window.Clerk) return resolve();
+          const script = document.createElement('script');
+          script.async = true;
+          script.crossOrigin = 'anonymous';
+          script.setAttribute('data-clerk-publishable-key', config.clerkPublishableKey);
+          script.src = `https://${clerkDomain}/npm/@clerk/clerk-js@latest/dist/clerk.browser.js`;
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+
+        if (!window.Clerk) return null;
+        await window.Clerk.load();
+        const user = window.Clerk.user;
+        if (!user?.id) return null;
+        const hydrated = {
+          id: user.id,
+          email: user.primaryEmailAddress?.emailAddress || '',
+          firstName: user.firstName || '',
+          lastName: user.lastName || ''
+        };
+        saveAuthUser(hydrated);
+        return hydrated;
+      })();
+    }
+
+    return authReady;
+  }
+
   function requireAuth() {
     const user = getAuthUser();
     if (user?.id) return user;
@@ -49,10 +93,25 @@
     return null;
   }
 
+  function saveAuthUser(user) {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+  }
+
   function getBuyerId() {
     const user = getAuthUser();
     if (!user?.id) return null;
-    return `email:${user.id}`;
+    return `user:clerk:${user.id}`;
+  }
+
+  async function getClerkToken() {
+    await ensureAuth();
+    const session = window.Clerk?.session;
+    if (!session?.getToken) return null;
+    try {
+      return await session.getToken();
+    } catch {
+      return null;
+    }
   }
 
   function setPlanView(plan) {
@@ -64,8 +123,11 @@
   }
 
   async function refreshPlan() {
-    const user = requireAuth();
-    if (!user) return;
+    const user = await ensureAuth();
+    if (!user) {
+      requireAuth();
+      return;
+    }
     const buyerId = getBuyerId();
     const { ok, data } = await api(`/me/plan?buyer_wallet=${encodeURIComponent(buyerId)}`);
     if (!ok) {
@@ -115,8 +177,12 @@
 
     els.upgradeGrid.querySelectorAll('.plan-select').forEach((button) => {
       button.addEventListener('click', () => {
-        const user = requireAuth();
-        if (!user) return;
+        const user = getAuthUser();
+        if (!user?.id) {
+          localStorage.setItem(REDIRECT_KEY, '/ask');
+          window.location.href = '/login';
+          return;
+        }
         els.upgradeStatus.textContent = `Selected ${button.dataset.plan}. PayPal checkout will attach this plan to ${user.email || 'your account'}.`;
       });
     });
@@ -139,62 +205,44 @@
   });
 
   els.askForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const user = requireAuth();
-    if (!user) return;
-    const buyerId = getBuyerId();
-    const prompt = els.prompt.value.trim();
-    const specialty = els.specialty.value.trim();
-    const mode = els.mode.value;
-    if (!prompt) {
-      els.askStatus.textContent = 'Ask an actual question first.';
+    const user = await ensureAuth();
+    if (!user?.id) {
+      event.preventDefault();
+      localStorage.setItem(REDIRECT_KEY, '/ask');
+      window.location.href = '/login';
       return;
     }
+
+    const token = await getClerkToken();
+    if (!token) {
+      event.preventDefault();
+      els.askStatus.textContent = 'Your session expired. Sign in again.';
+      localStorage.setItem(REDIRECT_KEY, '/ask');
+      window.location.href = '/login';
+      return;
+    }
+
+    let tokenInput = els.askForm.querySelector('input[name="clerk_token"]');
+    if (!tokenInput) {
+      tokenInput = document.createElement('input');
+      tokenInput.type = 'hidden';
+      tokenInput.name = 'clerk_token';
+      els.askForm.appendChild(tokenInput);
+    }
+    tokenInput.value = token;
 
     els.askSubmit.disabled = true;
-    els.askStatus.textContent = 'Thinking…';
-
-    const body = { prompt, buyer_wallet: buyerId, mode };
-    if (specialty) body.specialty = specialty;
-
-    let result = await api('/think', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-
-    if (!result.ok && result.data?.message === 'specialty classification failed' && !specialty) {
-      result = await api('/think', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...body, specialty: 'other/general' })
-      });
-    }
-
-    const { ok, status, data } = result;
-    els.askSubmit.disabled = false;
-
-    if (ok) {
-      els.askStatus.textContent = 'Done.';
-      renderAnswer(data);
-      return;
-    }
-
-    if (status === 402 && data?.error === 'upgrade_required') {
-      els.askStatus.textContent = data?.message || 'This request needs a paid plan.';
-      els.answerEmpty.classList.remove('hide');
-      els.answerShell.classList.add('hide');
-      els.answerEmpty.textContent = 'Consensus is free. Fact-checking unlocks once you are on a paid plan.';
-      return;
-    }
-
-    els.askStatus.textContent = data?.message || `Request failed (${status}).`;
-    els.answerEmpty.classList.remove('hide');
-    els.answerShell.classList.add('hide');
-    els.answerEmpty.textContent = data?.message || 'Could not get an answer right now.';
+    els.askSubmit.textContent = 'Thinking…';
+    els.askStatus.textContent = 'Submitting your question…';
   });
 
-  requireAuth();
-  refreshPlan();
-  loadPlans();
+  (async () => {
+    const user = await ensureAuth();
+    if (!user?.id) {
+      requireAuth();
+      return;
+    }
+    await refreshPlan();
+    await loadPlans();
+  })();
 })();

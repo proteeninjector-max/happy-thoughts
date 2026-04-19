@@ -1,3 +1,4 @@
+import { verifyToken } from "@clerk/backend";
 import { verifyX402Payment } from "./middleware/payment";
 import { getDomainDisclaimer } from "./constants/disclaimers";
 import { LEGAL_AUP, LEGAL_PRIVACY, LEGAL_PROVIDER_AGREEMENT, LEGAL_TOS } from "./constants/legal";
@@ -95,6 +96,13 @@ function textResponse(body: string, status = 200, headers?: Record<string, strin
   });
 }
 
+function htmlResponse(body: string, status = 200, headers?: Record<string, string>): Response {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8", ...(headers ?? {}) }
+  });
+}
+
 function ok(body: unknown, status = 200): Response {
   return jsonResponse(body, status);
 }
@@ -105,6 +113,70 @@ function badRequest(message: string, details?: unknown): Response {
 
 function notFound(): Response {
   return jsonResponse({ error: "Not found" }, 404);
+}
+
+function authUnauthorized(message = "Unauthorized"): Response {
+  return jsonResponse({ error: "unauthorized", message }, 401);
+}
+
+function redirectToLogin(request: Request): Response {
+  const url = new URL(request.url);
+  const loginUrl = new URL("/login", url.origin);
+  if (url.pathname && url.pathname !== "/login") {
+    loginUrl.searchParams.set("redirect_url", `${url.pathname}${url.search}`);
+  }
+  return Response.redirect(loginUrl.toString(), 302);
+}
+
+type HumanAuth = {
+  clerkUserId: string;
+  buyerId: string;
+  token: string;
+};
+
+function getCookieValue(request: Request, name: string): string | null {
+  const cookieHeader = request.headers.get("cookie") || "";
+  const parts = cookieHeader.split(/;\s*/g);
+  for (const part of parts) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    const key = part.slice(0, eq).trim();
+    if (key !== name) continue;
+    return decodeURIComponent(part.slice(eq + 1));
+  }
+  return null;
+}
+
+function getBearerToken(request: Request): string | null {
+  const authHeader = request.headers.get("authorization") || "";
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
+async function requireHumanAuth(request: Request, env: Env, options?: { token?: string | null; redirect?: boolean }): Promise<HumanAuth | Response> {
+  if (!env.CLERK_SECRET_KEY) {
+    return jsonResponse({ error: "auth_not_configured", message: "Clerk secret key is not configured." }, 503);
+  }
+
+  const sessionToken = options?.token?.trim() || getBearerToken(request) || getCookieValue(request, "__session");
+  if (!sessionToken) {
+    return options?.redirect ? redirectToLogin(request) : authUnauthorized("Sign in required.");
+  }
+
+  try {
+    const payload = await verifyToken(sessionToken, { secretKey: env.CLERK_SECRET_KEY });
+    const clerkUserId = typeof payload?.sub === "string" ? payload.sub.trim() : "";
+    if (!clerkUserId) {
+      return options?.redirect ? redirectToLogin(request) : authUnauthorized("Invalid session.");
+    }
+    return {
+      clerkUserId,
+      buyerId: `user:clerk:${clerkUserId}`,
+      token: sessionToken
+    };
+  } catch {
+    return options?.redirect ? redirectToLogin(request) : authUnauthorized("Session expired or invalid.");
+  }
 }
 
 function validateSpecialties(specialties: string[]): string[] {
@@ -1223,6 +1295,84 @@ async function classifySpecialty(prompt: string, env: Env): Promise<string> {
   return "other/general";
 }
 
+function deriveWebBuyerId(request: Request): string {
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  const ua = request.headers.get("user-agent") || "unknown";
+  return `web:${ip}:${ua.slice(0, 80)}`;
+}
+
+async function handleWebAsk(request: Request, env: Env): Promise<Response> {
+  const form = await request.formData();
+  const auth = await requireHumanAuth(request, env, {
+    token: String(form.get("clerk_token") || "").trim() || null,
+    redirect: true
+  });
+  if (auth instanceof Response) return auth;
+
+  const prompt = String(form.get("prompt") || "").trim();
+  const specialty = String(form.get("specialty") || "").trim();
+  const mode = String(form.get("mode") || "consensus").trim() || "consensus";
+  if (!prompt) {
+    return htmlResponse(`<html><body style="font-family:system-ui;padding:24px;background:#0b0b12;color:#f5f5f7"><h1>Ask Happy Thoughts</h1><p>Prompt is required.</p><p><a href="/ask" style="color:#c084fc">Back</a></p></body></html>`, 400);
+  }
+
+  const encoder = new TextEncoder();
+  const buyer_wallet = auth.buyerId;
+  const stream = new ReadableStream({
+    async start(controller) {
+      const write = (html: string) => controller.enqueue(encoder.encode(html));
+      write(`<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Thinking…</title></head><body style="font-family:system-ui;padding:24px;background:#0b0b12;color:#f5f5f7;max-width:900px;margin:0 auto"><h1>Thinking…</h1><p>Your question was submitted. This can take around 20–40 seconds.</p><p style="color:#b8b3c7">Prompt: ${prompt.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><div style="margin-top:20px;padding:16px;border:1px solid #2a2340;border-radius:16px;background:#151122">Fetching model output…</div>`);
+
+      const apiReq = new Request(request.url.replace("/web-ask", "/think"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt, specialty, mode, buyer_wallet })
+      });
+      const apiResp = await handleThink(apiReq, env);
+      const payload = await apiResp.json().catch(() => ({} as any));
+
+      if (!apiResp.ok) {
+        const message = String(payload?.message || `Request failed (${apiResp.status})`).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        write(`<h2 style="margin-top:28px">Couldn’t complete the answer</h2><p>${message}</p><p><a href="/ask" style="color:#c084fc">← Back</a></p></body></html>`);
+        controller.close();
+        return;
+      }
+
+      const answer = String(payload?.thought || payload?.final_answer?.text || "No answer returned.")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const confidence = String(payload?.confidence || payload?.confidence_reason || "—")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const seconds = Math.max(1, Math.round((payload?.response_time_ms || 0) / 1000));
+      write(`<h2 style="margin-top:28px">Answer</h2><p style="color:#b8b3c7">Done in ${seconds}s.</p><div style="white-space:pre-wrap;line-height:1.6;background:#151122;border:1px solid #2a2340;padding:20px;border-radius:16px">${answer}</div><p style="color:#b8b3c7;margin-top:16px">Confidence: ${confidence}</p><p style="margin-top:20px"><a href="/ask" style="color:#c084fc">← Ask another</a></p></body></html>`);
+      controller.close();
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store"
+    }
+  });
+}
+
+async function handleAuthSession(request: Request, env: Env): Promise<Response> {
+  const auth = await requireHumanAuth(request, env);
+  if (auth instanceof Response) return auth;
+
+  return ok({
+    authenticated: true,
+    user: {
+      id: auth.clerkUserId,
+      buyer_id: auth.buyerId
+    }
+  });
+}
+
 async function handleThink(request: Request, env: Env): Promise<Response> {
   let body: any;
   try {
@@ -1254,13 +1404,13 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   if (!specialty) {
     try {
       specialty = await classifySpecialty(prompt, env);
-    } catch (err: any) {
-      return badRequest("specialty classification failed", { error: err?.message });
+    } catch {
+      specialty = "other/general";
     }
   }
 
   if (!SPECIALTY_LEAVES.has(specialty)) {
-    return badRequest("unknown specialty", { specialty });
+    specialty = "other/general";
   }
 
   if (!["quick", "consensus", "verified"].includes(mode)) {
@@ -4200,6 +4350,8 @@ export default {
         return handlePayPalCaptureOrder(request, env);
       case "POST /paypal/webhook":
         return handlePayPalWebhook(request, env);
+      case "POST /web-ask":
+        return handleWebAsk(request, env);
       case "POST /internal/think":
         return handleInternalThink(request, env);
       case "POST /internal/consensus":
@@ -4226,6 +4378,8 @@ export default {
           provider: env.CLERK_PUBLISHABLE_KEY ? "clerk" : null,
           clerkPublishableKey: env.CLERK_PUBLISHABLE_KEY || null
         });
+      case "GET /auth/session":
+        return handleAuthSession(request, env);
       default:
         return notFound();
     }
