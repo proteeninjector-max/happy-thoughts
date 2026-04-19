@@ -128,8 +128,7 @@
       requireAuth();
       return;
     }
-    const buyerId = getBuyerId();
-    const { ok, data } = await api(`/me/plan?buyer_wallet=${encodeURIComponent(buyerId)}`);
+    const { ok, data } = await api('/me/plan');
     if (!ok) {
       setPlanView({ plan: 'free', verified_quota_monthly: 0, prompt_char_limit: 4000, free_consensus_daily_limit: 3 });
       els.planBadge.textContent = 'FREE';

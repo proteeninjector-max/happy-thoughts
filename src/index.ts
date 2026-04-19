@@ -218,6 +218,10 @@ function isValidWallet(value: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(value);
 }
 
+function isHumanBuyerId(value: string): boolean {
+  return /^user:clerk:[A-Za-z0-9_:-]+$/.test(value);
+}
+
 function normalizeHandle(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim().replace(/^@+/, "");
@@ -2546,18 +2550,28 @@ async function handlePlans(): Promise<Response> {
 
 async function handleMyPlan(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  const buyerWallet = url.searchParams.get("buyer_wallet")?.trim() || "";
-  if (!isValidWallet(buyerWallet)) return badRequest("buyer_wallet must be a valid EVM address");
+  let buyerId = url.searchParams.get("buyer_id")?.trim() || url.searchParams.get("buyer_wallet")?.trim() || "";
 
-  const entitlement = await getBuyerEntitlement(env, buyerWallet);
-  const raw = await env.BUYERS.get(buyerEntitlementKey(buyerWallet));
+  if (!buyerId) {
+    const auth = await requireHumanAuth(request, env);
+    if (auth instanceof Response) return auth;
+    buyerId = auth.buyerId;
+  }
+
+  if (!isValidWallet(buyerId) && !isHumanBuyerId(buyerId)) {
+    return badRequest("buyer_id must be a valid wallet or authenticated human account id");
+  }
+
+  const entitlement = await getBuyerEntitlement(env, buyerId);
+  const raw = await env.BUYERS.get(buyerEntitlementKey(buyerId));
   const storedEntitlement = raw ? JSON.parse(raw) : null;
   const plan = entitlement?.plan || (storedEntitlement?.plan && isPlanTier(storedEntitlement.plan) ? storedEntitlement.plan : "free");
-  const verifiedUsage = await buildVerifiedUsageSnapshot(env, buyerWallet, plan);
-  const freeConsensusUsage = buildUsageSnapshot(FREE_CONSENSUS_DAILY_LIMIT, await getFreeConsensusUsage(env, buyerWallet), "day");
+  const verifiedUsage = await buildVerifiedUsageSnapshot(env, buyerId, plan);
+  const freeConsensusUsage = buildUsageSnapshot(FREE_CONSENSUS_DAILY_LIMIT, await getFreeConsensusUsage(env, buyerId), "day");
 
   return ok({
-    buyer_wallet: buyerWallet,
+    buyer_id: buyerId,
+    buyer_wallet: isValidWallet(buyerId) ? buyerId : null,
     plan,
     entitlement,
     stored_entitlement: storedEntitlement,
