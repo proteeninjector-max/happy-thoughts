@@ -1369,9 +1369,6 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
 
   if (!prompt) return badRequest("prompt is required");
   if (!buyerWallet) return badRequest("buyer_wallet is required");
-  if (buyerWallet.startsWith("anon:web:")) {
-    return badRequest("buyer_wallet must be a tracked account id");
-  }
 
   const plan = await resolvePlanTier(request, body, env, buyerWallet, ownerRequest);
   const mode = resolveAnswerMode(body, plan, ownerRequest);

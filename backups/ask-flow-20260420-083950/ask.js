@@ -2,7 +2,7 @@
   const API_BASE = '';
   const AUTH_STORAGE_KEY = "happythoughts_auth_user";
   const REDIRECT_KEY = "happythoughts_post_auth_redirect";
-  const ASK_DRAFT_KEY = "happythoughts_ask_draft";
+  const ANON_BUYER_KEY = "happythoughts_anon_buyer_id";
   let authReady = null;
   const els = {
     walletStatus: document.getElementById('wallet-status'),
@@ -104,27 +104,12 @@
     return null;
   }
 
-  function saveDraft() {
-    localStorage.setItem(ASK_DRAFT_KEY, JSON.stringify({
-      prompt: els.prompt?.value || '',
-      specialty: els.specialty?.value || '',
-      mode: els.mode?.value || 'consensus'
-    }));
-  }
-
-  function restoreDraft() {
-    try {
-      const raw = localStorage.getItem(ASK_DRAFT_KEY);
-      if (!raw) return;
-      const draft = JSON.parse(raw);
-      if (typeof draft?.prompt === 'string' && !els.prompt.value) els.prompt.value = draft.prompt;
-      if (typeof draft?.specialty === 'string' && !els.specialty.value) els.specialty.value = draft.specialty;
-      if (typeof draft?.mode === 'string' && els.mode.querySelector(`option[value="${draft.mode}"]`)) els.mode.value = draft.mode;
-    } catch {}
-  }
-
-  function clearDraft() {
-    localStorage.removeItem(ASK_DRAFT_KEY);
+  function getAnonymousBuyerId() {
+    let buyerId = localStorage.getItem(ANON_BUYER_KEY);
+    if (buyerId) return buyerId;
+    buyerId = `anon:web:${crypto.randomUUID()}`;
+    localStorage.setItem(ANON_BUYER_KEY, buyerId);
+    return buyerId;
   }
 
   function saveAuthUser(user) {
@@ -134,7 +119,7 @@
   function getBuyerId() {
     const user = getAuthUser();
     if (user?.id) return `user:clerk:${user.id}`;
-    return null;
+    return getAnonymousBuyerId();
   }
 
   async function getClerkToken() {
@@ -243,14 +228,7 @@
   els.askSubmit.addEventListener('click', async () => {
     if (submitting) return;
 
-    const user = await ensureAuth();
-
-    if (!user?.id) {
-      saveDraft();
-      els.askStatus.textContent = 'Sign in to get your free tracked answers.';
-      requireAuth();
-      return;
-    }
+    await ensureAuth();
 
     const buyerId = getBuyerId();
     if (!buyerId) {
@@ -304,7 +282,6 @@
     }
 
     renderAnswer(data || {});
-    clearDraft();
     const usage = data?.usage?.remaining;
     els.askStatus.textContent = typeof usage === 'number'
       ? `${usage} free answer${usage === 1 ? '' : 's'} remaining today.`
@@ -318,7 +295,6 @@
   });
 
   (async () => {
-    restoreDraft();
     await ensureAuth();
     await refreshPlan();
     await loadPlans();
