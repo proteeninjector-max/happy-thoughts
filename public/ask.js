@@ -153,7 +153,30 @@
     els.planName.textContent = plan.plan || 'free';
     els.planVerified.textContent = String(plan.verified_quota_monthly ?? 0);
     els.planLimit.textContent = String(plan.prompt_char_limit ?? 4000);
-    els.planFree.textContent = typeof plan.free_consensus_daily_limit === 'number' ? String(plan.free_consensus_daily_limit) : '—';
+    els.planFree.textContent = typeof plan.free_consensus_daily_remaining === 'number'
+      ? String(plan.free_consensus_daily_remaining)
+      : (typeof plan.free_consensus_daily_limit === 'number' ? String(plan.free_consensus_daily_limit) : '—');
+  }
+
+  function normalizePlanPayload(data) {
+    const planCatalog = data?.plan_catalog || {};
+    const planName = typeof data?.plan === 'string'
+      ? data.plan
+      : (typeof data?.plan?.plan === 'string' ? data.plan.plan : 'free');
+    const freeQuota = data?.quotas?.free_consensus_daily || data?.usage || null;
+    const verifiedQuota = data?.quotas?.verified_monthly || null;
+
+    return {
+      plan: planCatalog.plan || planName || 'free',
+      verified_quota_monthly: typeof planCatalog.verified_quota_monthly === 'number'
+        ? planCatalog.verified_quota_monthly
+        : (typeof verifiedQuota?.limit === 'number' ? verifiedQuota.limit : 0),
+      prompt_char_limit: typeof planCatalog.prompt_char_limit === 'number' ? planCatalog.prompt_char_limit : 4000,
+      free_consensus_daily_limit: typeof planCatalog.free_consensus_daily_limit === 'number'
+        ? planCatalog.free_consensus_daily_limit
+        : (typeof freeQuota?.limit === 'number' ? freeQuota.limit : 3),
+      free_consensus_daily_remaining: typeof freeQuota?.remaining === 'number' ? freeQuota.remaining : null
+    };
   }
 
   async function refreshPlan() {
@@ -171,7 +194,7 @@
       els.walletStatus.textContent = 'Signed in with email.';
       return;
     }
-    const plan = data?.plan || data || {};
+    const plan = normalizePlanPayload(data || {});
     setPlanView(plan);
     els.planBadge.textContent = (plan.plan || 'free').toUpperCase();
     els.walletStatus.textContent = plan.plan === 'free'
