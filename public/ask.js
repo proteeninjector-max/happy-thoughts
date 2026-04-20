@@ -2,6 +2,7 @@
   const API_BASE = '';
   const AUTH_STORAGE_KEY = "happythoughts_auth_user";
   const REDIRECT_KEY = "happythoughts_post_auth_redirect";
+  const ANON_BUYER_KEY = "happythoughts_anon_buyer_id";
   let authReady = null;
   const els = {
     walletStatus: document.getElementById('wallet-status'),
@@ -103,14 +104,22 @@
     return null;
   }
 
+  function getAnonymousBuyerId() {
+    let buyerId = localStorage.getItem(ANON_BUYER_KEY);
+    if (buyerId) return buyerId;
+    buyerId = `anon:web:${crypto.randomUUID()}`;
+    localStorage.setItem(ANON_BUYER_KEY, buyerId);
+    return buyerId;
+  }
+
   function saveAuthUser(user) {
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
   }
 
   function getBuyerId() {
     const user = getAuthUser();
-    if (!user?.id) return null;
-    return `user:clerk:${user.id}`;
+    if (user?.id) return `user:clerk:${user.id}`;
+    return getAnonymousBuyerId();
   }
 
   async function getClerkToken() {
@@ -135,7 +144,9 @@
   async function refreshPlan() {
     const user = await ensureAuth();
     if (!user) {
-      requireAuth();
+      setPlanView({ plan: 'free', verified_quota_monthly: 0, prompt_char_limit: 4000, free_consensus_daily_limit: 3 });
+      els.planBadge.textContent = 'FREE';
+      els.walletStatus.textContent = 'Free mode. Ask one now; sign in later if you want history or upgrades.';
       return;
     }
     const { ok, data } = await api('/me/plan');
@@ -188,8 +199,7 @@
       button.addEventListener('click', () => {
         const user = getAuthUser();
         if (!user?.id) {
-          localStorage.setItem(REDIRECT_KEY, '/ask');
-          window.location.href = '/login';
+          els.upgradeStatus.textContent = `Selected ${button.dataset.plan}. Sign in first and we’ll attach this plan to your account.`;
           return;
         }
         els.upgradeStatus.textContent = `Selected ${button.dataset.plan}. PayPal checkout will attach this plan to ${user.email || 'your account'}.`;
@@ -213,44 +223,79 @@
     els.prompt.focus();
   });
 
-  els.askForm.addEventListener('submit', async (event) => {
-    const user = await ensureAuth();
-    if (!user?.id) {
-      event.preventDefault();
-      localStorage.setItem(REDIRECT_KEY, '/ask');
-      window.location.href = '/login';
+  let submitting = false;
+
+  els.askSubmit.addEventListener('click', async () => {
+    if (submitting) return;
+
+    await ensureAuth();
+
+    const buyerId = getBuyerId();
+    if (!buyerId) {
+      els.askStatus.textContent = 'Missing account identity. Reload and try again.';
       return;
     }
 
-    const token = await getClerkToken();
-    if (!token) {
-      event.preventDefault();
-      els.askStatus.textContent = 'Your session expired. Sign in again.';
-      localStorage.setItem(REDIRECT_KEY, '/ask');
-      window.location.href = '/login';
+    const prompt = els.prompt.value.trim();
+    const specialty = els.specialty.value.trim();
+    const mode = els.mode.value || 'consensus';
+
+    if (!prompt) {
+      els.askStatus.textContent = 'Question required.';
+      els.prompt.focus();
       return;
     }
 
-    let tokenInput = els.askForm.querySelector('input[name="clerk_token"]');
-    if (!tokenInput) {
-      tokenInput = document.createElement('input');
-      tokenInput.type = 'hidden';
-      tokenInput.name = 'clerk_token';
-      els.askForm.appendChild(tokenInput);
-    }
-    tokenInput.value = token;
-
+    submitting = true;
     els.askSubmit.disabled = true;
     els.askSubmit.textContent = 'Thinking…';
-    els.askStatus.textContent = 'Submitting your question…';
+    els.askStatus.textContent = 'Getting your answer…';
+    els.answerEmpty.classList.remove('hide');
+    els.answerShell.classList.add('hide');
+    els.answerEmpty.textContent = 'Thinking…';
+    els.answerModeBadge.textContent = mode === 'verified' ? 'Fact-checking' : 'Consensus';
+
+    const { ok, data, status } = await api('/think', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        specialty,
+        mode,
+        buyer_wallet: buyerId
+      })
+    });
+
+    if (!ok) {
+      const message = data?.message || data?.error || `Request failed (${status})`;
+      els.askStatus.textContent = String(message);
+      renderAnswer({
+        mode,
+        message: String(message),
+        confidence: '—',
+        confidence_reason: ok ? 'Done.' : 'Request failed.'
+      });
+      submitting = false;
+      els.askSubmit.disabled = false;
+      els.askSubmit.textContent = 'Get answer';
+      return;
+    }
+
+    renderAnswer(data || {});
+    const usage = data?.usage?.remaining;
+    els.askStatus.textContent = typeof usage === 'number'
+      ? `${usage} free answer${usage === 1 ? '' : 's'} remaining today.`
+      : 'Answer ready.';
+
+    await refreshPlan();
+
+    submitting = false;
+    els.askSubmit.disabled = false;
+    els.askSubmit.textContent = 'Get answer';
   });
 
   (async () => {
-    const user = await ensureAuth();
-    if (!user?.id) {
-      requireAuth();
-      return;
-    }
+    await ensureAuth();
     await refreshPlan();
     await loadPlans();
   })();

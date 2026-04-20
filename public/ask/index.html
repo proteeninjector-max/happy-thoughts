@@ -72,29 +72,29 @@
             </div>
             <span class="badge badge-success">Live</span>
           </div>
-          <form id="ask-form" class="token-form">
+          <div id="ask-form" class="token-form">
             <div class="field-group">
               <label class="field-label" for="prompt">Question</label>
-              <textarea id="prompt" class="textarea" rows="8" placeholder="What should I ask? Compare the best CRM options for a 3-person startup. / Is creatine worth taking daily? / Give me a clean breakdown of this trade idea..."></textarea>
+              <textarea id="prompt" name="prompt" class="textarea" rows="8" placeholder="What should I ask? Compare the best CRM options for a 3-person startup. / Is creatine worth taking daily? / Give me a clean breakdown of this trade idea..."></textarea>
             </div>
             <div class="plans-grid" style="grid-template-columns:1.2fr .9fr;gap:14px;">
               <div class="field-group">
                 <label class="field-label" for="specialty">Specialty (optional)</label>
-                <input id="specialty" class="field" type="text" placeholder="Leave blank and we’ll classify it" />
+                <input id="specialty" name="specialty" class="field" type="text" placeholder="Leave blank and we’ll classify it" />
               </div>
               <div class="field-group">
                 <label class="field-label" for="mode">Mode</label>
-                <select id="mode" class="field">
+                <select id="mode" name="mode" class="field">
                   <option value="consensus">Consensus</option>
                   <option value="verified">Fact-checking</option>
                 </select>
               </div>
             </div>
             <div class="inline-actions">
-              <button class="btn btn-primary" type="submit" id="ask-submit">Get answer</button>
+              <button class="btn btn-primary" type="button" id="ask-submit">Get answer</button>
               <button class="btn btn-secondary" type="button" id="fill-example">Use example</button>
             </div>
-          </form>
+          </div>
           <div class="notice" id="ask-status" style="margin-top:16px;">Ask once. We’ll do the model comparison for you.</div>
         </article>
 
@@ -154,6 +154,6 @@
     </div>
   </footer>
 
-  <script src="/ask.js"></script>
+  <script src="/ask.js?v=2"></script>
 </body>
 </html>
