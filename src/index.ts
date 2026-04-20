@@ -1372,6 +1372,13 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   if (buyerWallet.startsWith("anon:web:")) {
     return badRequest("buyer_wallet must be a tracked account id");
   }
+  if (isHumanBuyerId(buyerWallet) && !ownerRequest) {
+    const auth = await requireHumanAuth(request, env);
+    if (auth instanceof Response) return auth;
+    if (auth.buyerId !== buyerWallet) {
+      return authUnauthorized("buyer_wallet does not match authenticated account");
+    }
+  }
 
   const plan = await resolvePlanTier(request, body, env, buyerWallet, ownerRequest);
   const mode = resolveAnswerMode(body, plan, ownerRequest);
