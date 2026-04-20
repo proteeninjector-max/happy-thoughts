@@ -6,6 +6,7 @@
   let authReady = null;
   const els = {
     walletStatus: document.getElementById('wallet-status'),
+    authButton: document.getElementById('auth-button'),
     planBadge: document.getElementById('plan-badge'),
     planName: document.getElementById('plan-name'),
     planVerified: document.getElementById('plan-verified'),
@@ -131,6 +132,36 @@
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
   }
 
+  function clearAuthUser() {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    authReady = null;
+  }
+
+  async function signOutAndReturn() {
+    try {
+      await ensureAuth();
+      if (window.Clerk?.signOut) {
+        await window.Clerk.signOut();
+      }
+    } catch {}
+    clearAuthUser();
+    window.location.href = '/ask';
+  }
+
+  function syncAuthButton(user) {
+    if (!els.authButton) return;
+    if (user?.id) {
+      els.authButton.textContent = 'Log out';
+      els.authButton.onclick = () => { void signOutAndReturn(); };
+    } else {
+      els.authButton.textContent = 'Log in';
+      els.authButton.onclick = () => {
+        localStorage.setItem(REDIRECT_KEY, '/ask');
+        window.location.href = '/login';
+      };
+    }
+  }
+
   function getBuyerId() {
     const user = getAuthUser();
     if (user?.id) return `user:clerk:${user.id}`;
@@ -182,6 +213,7 @@
   async function refreshPlan() {
     const user = await ensureAuth();
     if (!user) {
+      syncAuthButton(null);
       setPlanView({ plan: 'free', verified_quota_monthly: 0, prompt_char_limit: 4000, free_consensus_daily_limit: 3 });
       els.planBadge.textContent = 'FREE';
       els.walletStatus.textContent = 'Free mode. Ask one now; sign in later if you want history or upgrades.';
@@ -194,6 +226,7 @@
       els.walletStatus.textContent = 'Signed in with email.';
       return;
     }
+    syncAuthButton(user);
     const plan = normalizePlanPayload(data || {});
     setPlanView(plan);
     els.planBadge.textContent = (plan.plan || 'free').toUpperCase();
@@ -313,6 +346,14 @@
 
     if (!ok) {
       const message = data?.message || data?.error || `Request failed (${status})`;
+      if (status === 401 || /session expired|invalid session|unauthorized/i.test(String(message))) {
+        saveDraft();
+        clearAuthUser();
+        els.askStatus.textContent = 'Session expired. Sign in again.';
+        localStorage.setItem(REDIRECT_KEY, '/ask');
+        window.location.href = '/login';
+        return;
+      }
       els.askStatus.textContent = String(message);
       renderAnswer({
         mode,
@@ -342,7 +383,8 @@
 
   (async () => {
     restoreDraft();
-    await ensureAuth();
+    const user = await ensureAuth();
+    syncAuthButton(user);
     await refreshPlan();
     await loadPlans();
   })();
