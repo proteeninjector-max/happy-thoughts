@@ -1,0 +1,23 @@
+/ask
+  Cache-Control: no-store
+
+/ask/
+  Cache-Control: no-store
+
+/ask.html
+  Cache-Control: no-store
+
+/login
+  Cache-Control: no-store
+
+/login/
+  Cache-Control: no-store
+
+/login.html
+  Cache-Control: no-store
+
+/ask.js
+  Cache-Control: no-store
+
+/auth.js
+  Cache-Control: no-store
