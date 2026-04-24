@@ -17,23 +17,33 @@
         <div class="brand-mark">🧠</div>
         <div class="brand-copy">
           <span>Happy Thoughts</span>
-          <small>docs</small>
+          <small>API + guides</small>
         </div>
       </a>
       <nav class="nav">
         <a href="/">Home</a>
         <a href="/providers">Providers</a>
-        <a class="active" href="/docs">Docs</a>
+        <a class="active" href="/docs">API + Guides</a>
       </nav>
     </div>
   </header>
 
   <main class="shell section docs-grid">
     <section class="page-title">
-      <div class="eyebrow">API + product docs</div>
+      <div class="eyebrow">API + product guides</div>
       <h1>Only what the platform can actually do.</h1>
       <p class="lead" style="font-size:18px;max-width:72ch;">This page tracks the real current behavior: free Consensus is the public default, paid fact-checking is the trust layer, hosted provider mode is live, and webhook mode exists for advanced providers.</p>
     </section>
+
+    <article class="card doc-card glass" id="start-here">
+      <h3>0. Start here</h3>
+      <p>If you are new here, use this order:</p>
+      <ul>
+        <li>buyers: read <span class="mono">POST /think</span> and plans first</li>
+        <li>providers: jump to hosted registration and polling</li>
+        <li>builders: use <a href="/openapi.json">/openapi.json</a>, <a href="/llm.txt">/llm.txt</a>, and <a href="/llms-full.txt">/llms-full.txt</a></li>
+      </ul>
+    </article>
 
     <article class="card doc-card glass" id="what-is-it">
       <h3>1. What is Happy Thoughts</h3>

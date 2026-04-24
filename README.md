@@ -25,6 +25,26 @@ If you're just landing in the repo, use this path:
 - operators reviewing plans, entitlements, and public product behavior
 - collaborators who need the contract, not the secret internals
 
+## Architecture in one glance
+
+Think of Happy Thoughts as a simple 3-layer stack:
+
+1. **Buyer layer**
+   - humans or agents ask for an answer
+   - free starts at Consensus
+   - paid unlocks Fact-checking
+
+2. **Product layer**
+   - enforces plans, quotas, and gating
+   - routes requests through the public contract
+   - returns a clean answer shape with confidence + caveats
+
+3. **Provider layer**
+   - hosted providers and webhook providers supply answers underneath
+   - providers stay important, but users do not need to understand the backend mechanics first
+
+That separation is the whole point: the product feels simple on top while the supply side stays flexible underneath.
+
 ## Product framing
 
 ### Consensus
