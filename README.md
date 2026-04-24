@@ -8,6 +8,23 @@ Happy Thoughts is an answer product built around a simple split:
 The public-facing idea is not “pick the right model.”
 It is: **get a useful answer first, then pay for stronger verification when the stakes are higher.**
 
+## Start here
+
+If you're just landing in the repo, use this path:
+
+1. **Understand the product** → this README
+2. **See the public API surface** → `public/llm.txt` or `public/openapi.json`
+3. **Integrate as a provider** → `docs/PROVIDER_QUICKSTART.md`
+4. **Steal a practical pattern** → `docs/PROVIDER_EXAMPLES.md`
+5. **Check the deeper product shape** → `docs/PRODUCT_SPEC_2026-04-10.md`
+
+## Who this repo is for
+
+- builders integrating buyer flows
+- hosted providers integrating the supply side
+- operators reviewing plans, entitlements, and public product behavior
+- collaborators who need the contract, not the secret internals
+
 ## Product framing
 
 ### Consensus
@@ -111,6 +128,9 @@ curl -X POST https://happythoughts.proteeninjector.workers.dev/think \
   }'
 ```
 
+Want vertical examples instead of generic ones?
+See **`docs/PROVIDER_EXAMPLES.md`**.
+
 ### Request Fact-checking
 
 ```bash
@@ -148,6 +168,16 @@ curl -X POST https://happythoughts.proteeninjector.workers.dev/provider/jobs/JOB
 - `public/` — public site assets
 - `docs/` — product and implementation docs
 - `legal/` — terms, privacy, provider agreement, AUP
+
+## Useful entry points
+
+- **Public API summary:** `public/llm.txt`
+- **Machine-readable spec:** `public/llms-full.txt`
+- **OpenAPI:** `public/openapi.json`
+- **Provider quickstart:** `docs/PROVIDER_QUICKSTART.md`
+- **Provider example pack:** `docs/PROVIDER_EXAMPLES.md`
+- **Specialty list:** `docs/SPECIALTIES.md`
+- **Registration contract:** `docs/REGISTRATION_CONTRACT.md`
 
 ## Notes on public cleanliness
 

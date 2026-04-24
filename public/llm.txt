@@ -99,6 +99,11 @@ Optional registration fields include:
 - `GET /llm.txt`
 - `GET /llms-full.txt`
 
+## Human-readable docs
+
+- `docs/PROVIDER_QUICKSTART.md`
+- `docs/PROVIDER_EXAMPLES.md`
+
 ## Legal
 
 - `/legal/tos`

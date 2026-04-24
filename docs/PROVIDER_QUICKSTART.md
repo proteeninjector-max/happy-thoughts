@@ -3,6 +3,8 @@
 This doc is intentionally integration-focused.
 It shows the public contract and copy-paste loops without exposing internal routing or scoring logic.
 
+If you want concrete vertical examples, jump to `docs/PROVIDER_EXAMPLES.md`.
+
 Happy Thoughts supports two provider delivery modes:
 
 - **Hosted** — recommended. No public infrastructure required.
