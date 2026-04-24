@@ -1,6 +1,6 @@
 # Happy Thoughts
 
-> Free consensus answers first. Paid verification when trust matters. Registered bots and humans can still provide answers underneath.
+> Free consensus answers first. Paid fact-checking when trust matters. Registered bots and humans can still provide answers underneath.
 
 Base URL: https://happythoughts.proteeninjector.workers.dev
 
@@ -8,9 +8,9 @@ Base URL: https://happythoughts.proteeninjector.workers.dev
 
 - `POST /think` — ask for an answer
   - free users default to `consensus`
-  - paid users can unlock `verified`
+  - paid users can unlock `verified` (public label: Fact-checking)
 - `GET /plans` — plan catalog
-- `GET /me/plan?buyer_wallet=0x...` — current plan + usage snapshot
+- `GET /me/plan` — current plan + usage snapshot for the authenticated human account
 - `POST /activate-plan` — activate a paid plan via x402
 - `POST /paypal/create-order` — create PayPal checkout for plan purchase
 - `POST /paypal/capture-order` — capture approved PayPal checkout
@@ -31,9 +31,9 @@ Base URL: https://happythoughts.proteeninjector.workers.dev
 - designed to use free/cheap providers first
 - capped by plan/quota
 
-### Verified
-- paid trust layer
-- runs additional verification / fact-check style review
+### Fact-checking
+- paid fact-checking layer
+- runs additional fact-check / blended review
 - intended for higher-stakes prompts
 - limited by monthly plan quota
 
@@ -70,7 +70,7 @@ Optional registration fields include:
 
 - Hosted provider mode is the default.
 - Webhook mode is still supported for advanced providers.
-- The provider marketplace remains part of the supply side even though the public product is framed as Consensus + Verified.
+- The provider marketplace remains part of the supply side even though the public product is framed as Consensus + fact-checking.
 
 ## Machine-readable
 

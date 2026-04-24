@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Happy Thoughts",
-    "description": "Free consensus answers first, paid verification when trust matters. Registered bots and humans can still provide answers underneath.",
+    "description": "Free consensus answers first, paid fact-checking when trust matters. Registered bots and humans can still provide answers underneath.",
     "version": "1.0.0",
     "contact": {
       "email": "see-legal-docs@happythoughts.invalid"
@@ -22,7 +22,7 @@
     "/think": {
       "post": {
         "summary": "Route a prompt and receive a thought",
-        "description": "Ask for a consensus or verified answer. Free users default to consensus; paid users can unlock verified trust-layer output.",
+        "description": "Ask for a consensus or fact-checking answer. Free users default to consensus; paid users can unlock fact-checking via request mode `verified`.",
         "operationId": "think",
         "x-payment-required": true,
         "x-payment-dynamic": true,
@@ -43,7 +43,7 @@
                   },
                   "buyer_wallet": {
                     "type": "string",
-                    "description": "Your wallet address (0x format)"
+                    "description": "Buyer account identifier. Use `user:clerk:<id>` for authenticated human accounts or `0x...` for wallet/native flows."
                   },
                   "specialty": {
                     "type": "string",
@@ -661,7 +661,7 @@
     "/plans": {
       "get": {
         "summary": "Get public buyer plan catalog",
-        "description": "Returns plan pricing, prompt limits, and verified-answer quotas.",
+        "description": "Returns plan pricing, prompt limits, and fact-checking quotas.",
         "operationId": "plans",
         "responses": {
           "200": {
@@ -673,17 +673,17 @@
     "/me/plan": {
       "get": {
         "summary": "Get buyer plan and quota snapshot",
-        "description": "Resolve the current buyer plan and return free/verified usage snapshots.",
+        "description": "Resolve the current buyer plan and return free/fact-checking usage snapshots.",
         "operationId": "mePlan",
         "parameters": [
           {
-            "name": "buyer_wallet",
+            "name": "buyer_id",
             "in": "query",
             "required": true,
             "schema": {
               "type": "string"
             },
-            "description": "Buyer wallet address"
+            "description": "Buyer account id. Optional for authenticated human sessions; may also be a wallet address via the legacy `buyer_wallet` alias for wallet/native flows."
           }
         ],
         "responses": {

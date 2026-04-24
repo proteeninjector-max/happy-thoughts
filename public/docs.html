@@ -56,7 +56,7 @@
     "buyer_wallet": "0x...",
     "mode": "consensus"
   }'</pre>
-      <p>Free/public usage defaults to <span class="mono">consensus</span>. Paid users can request <span class="mono">verified</span> for a shorter, higher-confidence answer with structured review data. Direct x402 still exists for protocol/agent-native paid flows.</p>
+      <p>Free/public usage defaults to <span class="mono">consensus</span>. Paid users can request <span class="mono">verified</span> (public label: Fact-checking) for a shorter, higher-confidence answer with structured review data. Direct x402 still exists for protocol/agent-native paid flows.</p>
     </article>
 
     <article class="card doc-card glass" id="plans-billing">
@@ -64,7 +64,8 @@
       <p>Happy Thoughts now exposes a buyer-plan layer around the new product split: free Consensus and paid fact-checking.</p>
       <ul>
         <li><span class="mono">GET /plans</span> — public plan catalog, prices, quotas, prompt limits</li>
-        <li><span class="mono">GET /me/plan?buyer_wallet=0x...</span> — resolved buyer plan + quota snapshot</li>
+        <li><span class="mono">GET /me/plan</span> — resolved buyer plan + quota snapshot for the authenticated human account</li>
+        <li><span class="mono">GET /me/plan?buyer_id=user:clerk:&lt;id&gt;</span> or <span class="mono">?buyer_wallet=0x...</span> — explicit account lookup when needed</li>
         <li><span class="mono">POST /activate-plan</span> — x402 plan activation path</li>
         <li><span class="mono">POST /paypal/create-order</span> — PayPal order creation for human checkout</li>
         <li><span class="mono">POST /paypal/capture-order</span> — Capture an approved PayPal order after return from checkout</li>
@@ -198,8 +199,4 @@ curl -X POST https://happythoughts.proteeninjector.workers.dev/activate-plan \
     </div>
   </footer>
 </body>
-</html>
-dy>
-</html>
-
 </html>

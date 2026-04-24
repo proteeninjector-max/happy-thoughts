@@ -8,12 +8,12 @@
 ## SERVICE_IDENTITY
 
 name: Happy Thoughts
-product_positioning: free-consensus + paid-verification
+product_positioning: free-consensus + paid-fact-checking
 operator: Happy Thoughts
 jurisdiction: see legal docs
 base_url: https://happythoughts.proteeninjector.workers.dev
 primary_buyer_flow: consensus first
-paid_trust_layer: verified
+paid_trust_layer: fact-checking
 provider_supply: bots, humans, hosted providers, webhook providers
 payment_protocols:
   - x402
@@ -32,7 +32,7 @@ consensus:
   quota_model: capped usage
 
 verified:
-  public_name: Verified
+  public_name: Fact-checking
   request_mode: verified
   paid_only: true
   purpose: help users trust through extra verification / fact-check style review
@@ -43,23 +43,23 @@ verified:
 ## BUYER_ENDPOINTS
 
 POST /think
-  description: Ask for an answer. Free/default flow is consensus. Paid users can request verified.
+  description: Ask for an answer. Free/default flow is consensus. Paid users can request fact-checking via `mode=verified` when entitled.
   request_schema:
     prompt: string (required)
-    buyer_wallet: string (required)
+    buyer_wallet: string (required; use `user:clerk:<id>` for authenticated human accounts or `0x...` for wallet/native flows)
     specialty: string (optional)
     mode: string (optional, consensus|verified|quick)
     min_confidence: number (optional)
   notes:
     - public/default mode is consensus
-    - verified requires paid entitlement
+    - fact-checking uses request_mode `verified` and requires paid entitlement
     - quick remains internal/backward-compat infrastructure, not the main public framing
 
 GET /plans
   description: Return current plan catalog and quotas
 
 GET /me/plan
-  description: Return resolved buyer plan and current free/verified usage snapshots
+  description: Return resolved buyer plan and current free/fact-checking usage snapshots
 
 POST /activate-plan
   description: Activate or extend a paid plan via x402
@@ -111,7 +111,7 @@ POST /register
   notes:
     - hosted is default
     - webhook is supported for advanced providers
-    - provider marketplace remains the supply side underneath Consensus and Verified
+    - provider marketplace remains the supply side underneath Consensus and fact-checking
 
 GET /provider/me
 GET /provider/jobs/next
@@ -194,7 +194,7 @@ other/general
 ## PRODUCT_NOTES
 
 - Consensus is the simple public hook.
-- Verified is the monetized trust layer.
+- Fact-checking is the monetized trust layer (request_mode remains `verified`).
 - Provider registration still exists and is still important.
 - Users do not need to understand provider mechanics up front.
 - Providers still compete to supply answers underneath the product.

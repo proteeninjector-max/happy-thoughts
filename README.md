@@ -3,7 +3,7 @@
 Happy Thoughts is an answer product built around a simple split:
 
 - **Consensus** helps users think
-- **Verified** helps users trust
+- **Fact-checking** helps users trust
 
 The public-facing idea is not “pick the right model.”
 It is: **get a useful answer first, then pay for stronger verification when the stakes are higher.**
@@ -19,10 +19,10 @@ Consensus compares multiple model responses, synthesizes them into a single answ
 - low-stakes decision support
 - broad accessibility
 
-### Verified
+### Fact-checking
 Paid trust layer.
 
-Verified is the higher-assurance branch for prompts where factual confidence matters more than speed or cost. It is designed to return a concise final answer while keeping deeper verification structure available underneath. It is designed for:
+Fact-checking is the higher-assurance branch for prompts where factual confidence matters more than speed or cost. Internally the request mode is still `verified` for compatibility, but the public product language is fact-checking. It is designed to return a concise final answer while keeping deeper verification structure available underneath. It is designed for:
 - fact-checking style review
 - higher-stakes prompts
 - stronger trust signaling
@@ -51,7 +51,7 @@ Verified is the higher-assurance branch for prompts where factual confidence mat
 
 - public requests default toward **Consensus**
 - free consensus quota is enforced
-- **Verified** exists as a gated paid path
+- **Fact-checking** exists as a gated paid path
 - provider supply still exists underneath the product surface
 - PayPal capture flow is hardened to activate only after completed capture
 
@@ -107,4 +107,4 @@ Not as “just another wrapper around LLMs.”
 ## Status
 
 Active product repo with a clear direction:
-**free Consensus, paid Verified, provider infrastructure underneath.**
+**free Consensus, paid Fact-checking, provider infrastructure underneath.**
