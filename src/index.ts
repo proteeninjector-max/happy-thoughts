@@ -1447,7 +1447,7 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   if (mode === "verified" && plan === "free" && !ownerRequest) {
     return jsonResponse({
       error: "upgrade_required",
-      message: "Fact-checking requires a paid plan.",
+      message: "Fact-checking is locked on the free plan. Upgrade to unlock it.",
       answer_mode: "verified",
       plan,
       upgrade_cta: upgradeCta(plan, "verified")

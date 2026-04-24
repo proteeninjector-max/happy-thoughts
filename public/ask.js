@@ -261,6 +261,21 @@
     els.answerText.textContent = text;
   }
 
+  function renderLockedPaidState(data = {}) {
+    const upgrade = data.upgrade_cta || {};
+    const headline = upgrade.headline || 'Upgrade to unlock fact-checking';
+    const message = data.message || upgrade.message || 'Fact-checking is available on paid plans.';
+
+    renderAnswer({
+      answer_mode: 'verified',
+      thought: `${headline}\n\n${message}`,
+      confidence: 'locked',
+      confidence_reason: 'Your current plan includes free consensus only.'
+    });
+
+    els.upgradeStatus.textContent = `${headline}. ${message}`;
+  }
+
   function renderPlans(plans) {
     const ordered = [plans.starter, plans.builder, plans.pro].filter(Boolean);
     els.upgradeGrid.innerHTML = ordered.map((plan) => `
@@ -367,6 +382,16 @@
         window.location.href = '/login';
         return;
       }
+
+      if (status === 402 && data?.error === 'upgrade_required' && mode === 'verified') {
+        els.askStatus.textContent = String(message);
+        renderLockedPaidState(data || {});
+        submitting = false;
+        els.askSubmit.disabled = false;
+        els.askSubmit.textContent = 'Get answer';
+        return;
+      }
+
       els.askStatus.textContent = String(message);
       renderAnswer({
         mode,
