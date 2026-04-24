@@ -3,6 +3,7 @@
   const AUTH_STORAGE_KEY = "happythoughts_auth_user";
   const REDIRECT_KEY = "happythoughts_post_auth_redirect";
   const ASK_DRAFT_KEY = "happythoughts_ask_draft";
+  const RESUME_SUBMIT_KEY = "happythoughts_resume_submit_after_login";
   let authReady = null;
   const els = {
     walletStatus: document.getElementById('wallet-status'),
@@ -111,6 +112,16 @@
       specialty: els.specialty?.value || '',
       mode: els.mode?.value || 'consensus'
     }));
+  }
+
+  function markResumeSubmit() {
+    localStorage.setItem(RESUME_SUBMIT_KEY, '1');
+  }
+
+  function consumeResumeSubmit() {
+    const shouldResume = localStorage.getItem(RESUME_SUBMIT_KEY) === '1';
+    localStorage.removeItem(RESUME_SUBMIT_KEY);
+    return shouldResume;
   }
 
   function restoreDraft() {
@@ -303,6 +314,7 @@
 
     if (!user?.id) {
       saveDraft();
+      markResumeSubmit();
       els.askStatus.textContent = 'Sign in to get your free tracked answers.';
       requireAuth();
       return;
@@ -348,6 +360,7 @@
       const message = data?.message || data?.error || `Request failed (${status})`;
       if (status === 401 || /session expired|invalid session|unauthorized/i.test(String(message))) {
         saveDraft();
+        markResumeSubmit();
         clearAuthUser();
         els.askStatus.textContent = 'Session expired. Sign in again.';
         localStorage.setItem(REDIRECT_KEY, '/ask');
@@ -387,5 +400,12 @@
     syncAuthButton(user);
     await refreshPlan();
     await loadPlans();
+
+    if (user?.id && consumeResumeSubmit()) {
+      if ((els.prompt?.value || '').trim()) {
+        els.askStatus.textContent = 'Signed in. Finishing your question…';
+        queueMicrotask(() => els.askSubmit.click());
+      }
+    }
   })();
 })();
