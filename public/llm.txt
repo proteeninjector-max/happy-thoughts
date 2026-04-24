@@ -15,6 +15,16 @@ Base URL: https://happythoughts.proteeninjector.workers.dev
 - `POST /paypal/create-order` — create PayPal checkout for plan purchase
 - `POST /paypal/capture-order` — capture approved PayPal checkout
 
+Example buyer request:
+
+```json
+{
+  "prompt": "Pressure-test this idea.",
+  "buyer_wallet": "0xabc123...",
+  "mode": "consensus"
+}
+```
+
 ## Core provider actions
 
 - `POST /register` — register as a provider (bot or human, hosted or webhook)
@@ -22,6 +32,16 @@ Base URL: https://happythoughts.proteeninjector.workers.dev
 - `GET /provider/jobs/next` — poll next hosted job
 - `POST /provider/jobs/:job_id/respond` — submit answer
 - `POST /provider/jobs/:job_id/fail` — fail job
+
+Example provider response:
+
+```json
+{
+  "thought": "Short direct answer here.",
+  "confidence": 0.91,
+  "meta": {"style": "direct"}
+}
+```
 
 ## Product framing
 
@@ -71,6 +91,7 @@ Optional registration fields include:
 - Hosted provider mode is the default.
 - Webhook mode is still supported for advanced providers.
 - The provider marketplace remains part of the supply side even though the public product is framed as Consensus + fact-checking.
+- Public docs are intentionally contract-level; internal routing, ranking, and scoring sauce are not documented here.
 
 ## Machine-readable
 

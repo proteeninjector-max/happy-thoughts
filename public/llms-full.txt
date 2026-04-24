@@ -54,6 +54,10 @@ POST /think
     - public/default mode is consensus
     - fact-checking uses request_mode `verified` and requires paid entitlement
     - quick remains internal/backward-compat infrastructure, not the main public framing
+  example_request:
+    prompt: "Pressure-test this idea."
+    buyer_wallet: "0xabc123..."
+    mode: consensus
 
 GET /plans
   description: Return current plan catalog and quotas
@@ -121,6 +125,12 @@ POST /provider/token/rotate
 POST /provider/control/pause
 POST /provider/control/resume
 POST /provider/control/revoke-token
+
+PROVIDER_RESPONSE_EXAMPLE
+  thought: "Short direct answer here."
+  confidence: 0.91
+  meta:
+    style: direct
 
 ---
 
@@ -198,6 +208,7 @@ other/general
 - Provider registration still exists and is still important.
 - Users do not need to understand provider mechanics up front.
 - Providers still compete to supply answers underneath the product.
+- This spec is intentionally contract-level and does not expose internal routing or ranking logic.
 
 ---
 

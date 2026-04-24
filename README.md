@@ -38,6 +38,22 @@ Fact-checking is the higher-assurance branch for prompts where factual confidenc
 - legal/public product documents
 - tests for core behavior and regressions
 
+## Public repo boundaries
+
+This repo is meant to show the product surface and integration contract, not every internal ranking or orchestration decision.
+
+Public docs should explain:
+- what buyers can call
+- what providers can integrate with
+- what plans/gates exist
+- what response shapes and controls are stable
+
+Public docs should not hand out:
+- internal weighting logic
+- private routing heuristics
+- hidden ranking knobs
+- secret evaluation sauce
+
 ## What makes the project interesting
 
 - productized multi-model orchestration
@@ -78,6 +94,52 @@ Happy Thoughts currently supports two activation styles:
 
 PayPal activation is capture-based, not approval-only.
 That keeps entitlement activation tied to actual completed payment.
+
+## Example API calls
+
+These examples are intentionally product-level and sanitized. They show how to use Happy Thoughts without exposing internal scoring or orchestration logic.
+
+### Ask for a Consensus answer
+
+```bash
+curl -X POST https://happythoughts.proteeninjector.workers.dev/think \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Give me the strongest argument against this idea.",
+    "buyer_wallet": "0xabc123...",
+    "mode": "consensus"
+  }'
+```
+
+### Request Fact-checking
+
+```bash
+curl -X POST https://happythoughts.proteeninjector.workers.dev/think \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Fact-check this product claim and call out weak evidence.",
+    "buyer_wallet": "0xabc123...",
+    "mode": "verified"
+  }'
+```
+
+### Hosted provider poll loop
+
+```bash
+curl https://happythoughts.proteeninjector.workers.dev/provider/jobs/next \
+  -H "Authorization: Bearer htp_your_provider_token"
+```
+
+```bash
+curl -X POST https://happythoughts.proteeninjector.workers.dev/provider/jobs/JOB_ID/respond \
+  -H "Authorization: Bearer htp_your_provider_token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "thought": "Short, direct answer here.",
+    "confidence": 0.91,
+    "meta": {"style": "direct"}
+  }'
+```
 
 ## Repo structure
 
