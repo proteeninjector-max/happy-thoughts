@@ -252,64 +252,30 @@ describe("HappyThoughts Phase 2", () => {
     const html = await res.text();
     expect(html).toContain("Ask Happy Thoughts");
     expect(html).toContain('action="/web-ask"');
-    expect(html).toContain("guest_id");
+    expect(html).toContain("signed-in users during build/test");
   });
 
-  it("POST /web-ask supports guest consensus without auth", async () => {
+  it("POST /web-ask redirects to login without auth", async () => {
     const env = makeEnv();
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("api.cerebras.ai")) {
-        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Guest lane works.","","Key Points:","- no auth blocker","","Caveats:","- guest quota still applies","","Bottom Line:","Good enough."].join("\n") } }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" }
-        });
-      }
-      if (url.includes("api.mistral.ai") && url.includes("chat/completions")) {
-        return new Response(JSON.stringify({ choices: [{ message: { content: ["Thesis:","Guest consensus answer.","","Key Points:","- fast enough","","Caveats:","- alpha lane","","Bottom Line:","Ship it."].join("\n") } }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" }
-        });
-      }
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ agreement: ["guest flow works"], disagreements: [], blended_answer: "Guest answer.", confidence: "high", specialty: "General" }) }] } }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" }
-        });
-      }
-      return new Response("not mocked", { status: 500 });
-    }) as any;
+    const form = new FormData();
+    form.set("prompt", "Can I test this without auth?");
+    form.set("mode", "consensus");
 
-    try {
-      const form = new FormData();
-      form.set("prompt", "Can I test this without auth?");
-      form.set("mode", "consensus");
-      form.set("guest_id", "guest:web:test-guest-1234");
+    const res = await worker.fetch(
+      new Request("https://test/web-ask", {
+        method: "POST",
+        body: form,
+        redirect: "manual"
+      }),
+      {
+        ...env,
+        CLERK_SECRET_KEY: "test-secret"
+      } as any,
+      {} as any
+    );
 
-      const res = await worker.fetch(
-        new Request("https://test/web-ask", {
-          method: "POST",
-          body: form
-        }),
-        {
-          ...env,
-          CEREBRAS_API_KEY: "test",
-          MISTRAL_API_KEY: "test",
-          GEMMA_AI_API_KEY: "test",
-          GEMINI_SYNTHESIS_MODEL: "gemini-test"
-        } as any,
-        {} as any
-      );
-
-      expect(res.status).toBe(200);
-      const html = await res.text();
-      expect(html).toContain("Answer");
-      expect(html).toContain("Guest lane works");
-      expect(html).toContain("Ask another");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://test/login?redirect_url=%2Fweb-ask");
   });
 
   it("POST /think missing prompt returns 400", async () => {

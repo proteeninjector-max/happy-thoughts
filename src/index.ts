@@ -222,10 +222,6 @@ function isHumanBuyerId(value: string): boolean {
   return /^user:clerk:[A-Za-z0-9_:-]+$/.test(value);
 }
 
-function isGuestBuyerId(value: string): boolean {
-  return /^guest:web:[a-z0-9-]{8,}$/.test(value);
-}
-
 function normalizeHandle(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim().replace(/^@+/, "");
@@ -1305,10 +1301,11 @@ async function classifySpecialty(prompt: string, env: Env): Promise<string> {
 
 async function handleWebAsk(request: Request, env: Env): Promise<Response> {
   const form = await request.formData();
-  const formToken = String(form.get("clerk_token") || "").trim();
-  const cookieToken = getCookieValue(request, "__session");
-  const authToken = formToken || cookieToken || "";
-  const guestBuyerId = String(form.get("guest_id") || "").trim().toLowerCase();
+  const auth = await requireHumanAuth(request, env, {
+    token: String(form.get("clerk_token") || "").trim() || null,
+    redirect: true
+  });
+  if (auth instanceof Response) return auth;
 
   const prompt = String(form.get("prompt") || "").trim();
   const specialty = String(form.get("specialty") || "").trim();
@@ -1317,20 +1314,7 @@ async function handleWebAsk(request: Request, env: Env): Promise<Response> {
     return htmlResponse(`<html><body style="font-family:system-ui;padding:24px;background:#0b0b12;color:#f5f5f7"><h1>Ask Happy Thoughts</h1><p>Prompt is required.</p><p><a href="/ask" style="color:#c084fc">Back</a></p></body></html>`, 400);
   }
 
-  let buyer_wallet = "";
-  if (authToken && env.CLERK_SECRET_KEY) {
-    const auth = await requireHumanAuth(request, env, {
-      token: authToken,
-      redirect: true
-    });
-    if (auth instanceof Response) return auth;
-    buyer_wallet = auth.buyerId;
-  } else if (isGuestBuyerId(guestBuyerId)) {
-    buyer_wallet = guestBuyerId;
-  } else {
-    return htmlResponse(`<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Couldn’t complete the answer</title></head><body style="font-family:system-ui;padding:24px;background:#0b0b12;color:#f5f5f7;max-width:900px;margin:0 auto"><h1>Couldn’t complete the answer</h1><p>Missing guest session. Reload and try again.</p><p><a href="/ask" style="color:#c084fc">← Back</a></p></body></html>`, 400, { "cache-control": "no-store" });
-  }
-
+  const buyer_wallet = auth.buyerId;
   const apiReq = new Request(request.url.replace("/web-ask", "/think"), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1361,8 +1345,8 @@ async function handleAskPage(request: Request, env: Env): Promise<Response> {
   const authEnabled = Boolean(env.CLERK_PUBLISHABLE_KEY && env.CLERK_SECRET_KEY);
   const hasSession = Boolean(getCookieValue(request, "__session"));
   const authCopy = authEnabled
-    ? (hasSession ? "Signed in. Your answers will attach to your account." : "No sign-in needed for the free test lane. We’ll use a guest session and you can wire auth properly after.")
-    : "Auth isn’t wired here yet, so use the guest test lane for now.";
+    ? (hasSession ? "Signed in. Your answers will attach to your account." : "Sign in first. We’re not giving out anonymous free calls that torch the rate limit.")
+    : "Auth isn’t wired here yet, so this page should stay blocked until Clerk is configured.";
 
   return htmlResponse(`<!doctype html>
 <html>
@@ -1373,10 +1357,9 @@ async function handleAskPage(request: Request, env: Env): Promise<Response> {
   </head>
   <body style="font-family:system-ui;padding:24px;background:#0b0b12;color:#f5f5f7;max-width:900px;margin:0 auto">
     <h1 style="margin-bottom:8px">Ask Happy Thoughts</h1>
-    <p style="color:#b8b3c7;margin-top:0">Free consensus for build/test. 3 per day on the guest lane.</p>
+    <p style="color:#b8b3c7;margin-top:0">Free consensus for signed-in users during build/test.</p>
     <p style="color:#b8b3c7">${authCopy}</p>
     <form method="POST" action="/web-ask" style="display:grid;gap:12px;margin-top:20px">
-      <input type="hidden" name="guest_id" id="guest_id" value="" />
       <label style="display:grid;gap:6px">
         <span>Prompt</span>
         <textarea name="prompt" rows="8" required style="width:100%;padding:14px;border-radius:14px;border:1px solid #2a2340;background:#151122;color:#f5f5f7"></textarea>
@@ -1390,20 +1373,6 @@ async function handleAskPage(request: Request, env: Env): Promise<Response> {
       </label>
       <button type="submit" style="width:max-content;padding:12px 18px;border-radius:999px;border:0;background:#c084fc;color:#12091c;font-weight:700;cursor:pointer">Ask</button>
     </form>
-    <script>
-      (function () {
-        try {
-          var key = 'ht_guest_id';
-          var current = window.localStorage.getItem(key);
-          if (!current) {
-            current = 'guest:web:' + (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()));
-            window.localStorage.setItem(key, current);
-          }
-          var input = document.getElementById('guest_id');
-          if (input) input.value = current;
-        } catch (_) {}
-      })();
-    </script>
   </body>
 </html>`, 200, { "cache-control": "no-store" });
 }
