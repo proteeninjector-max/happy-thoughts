@@ -16,7 +16,7 @@ If you're just landing in the repo, use this path:
 2. **See the public API surface** → `public/llm.txt` or `public/openapi.json`
 3. **Integrate as a provider** → `docs/PROVIDER_QUICKSTART.md`
 4. **Steal a practical pattern** → `docs/PROVIDER_EXAMPLES.md`
-5. **Check the deeper product shape** → `docs/PRODUCT_SPEC_2026-04-10.md`
+5. **Explore the provider contract in practice** → `docs/HOSTED_PROVIDER_DELIVERY.md`
 
 ## Who this repo is for
 
@@ -73,7 +73,7 @@ Fact-checking is the higher-assurance branch for prompts where factual confidenc
 - provider registration + hosted provider plumbing
 - billing and activation flows
 - legal/public product documents
-- tests for core behavior and regressions
+- a curated public code sample of the Worker surface
 
 ## Public repo boundaries
 
@@ -184,9 +184,8 @@ curl -X POST https://happythoughts.proteeninjector.workers.dev/provider/jobs/JOB
 ## Repo structure
 
 - `src/` — Worker logic
-- `tests/` — regression coverage
 - `public/` — public site assets
-- `docs/` — product and implementation docs
+- `docs/` — public integration and provider docs
 - `legal/` — terms, privacy, provider agreement, AUP
 
 ## Useful entry points
@@ -197,7 +196,7 @@ curl -X POST https://happythoughts.proteeninjector.workers.dev/provider/jobs/JOB
 - **Provider quickstart:** `docs/PROVIDER_QUICKSTART.md`
 - **Provider example pack:** `docs/PROVIDER_EXAMPLES.md`
 - **Specialty list:** `docs/SPECIALTIES.md`
-- **Registration contract:** `docs/REGISTRATION_CONTRACT.md`
+- **Registration quickstart:** `docs/REGISTRATION_QUICKSTART.md`
 
 ## Notes on public cleanliness
 
@@ -211,9 +210,9 @@ Not as “just another wrapper around LLMs.”
 
 ## Suggested starting docs
 
-- `docs/PRODUCT_SPEC_2026-04-10.md`
-- `docs/IMPLEMENTATION_CHECKLIST_2026-04-10.md`
-- `docs/SECURITY_HARDENING_2026-04-10.md`
+- `docs/PROVIDER_QUICKSTART.md`
+- `docs/PROVIDER_EXAMPLES.md`
+- `docs/REGISTRATION_QUICKSTART.md`
 - `docs/HOSTED_PROVIDER_DELIVERY.md`
 
 ## Status
