@@ -18,6 +18,3 @@
 
 /ask.js
   Cache-Control: no-store
-
-/auth.js
-  Cache-Control: no-store
