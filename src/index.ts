@@ -759,9 +759,11 @@ function isOwnerRequest(request: Request, env: Env): boolean {
   return request.headers.get(ownerHeader) === ownerKey;
 }
 
-function allowAdminUi(request: Request): boolean {
+function allowAdminUi(request: Request, env: Env): boolean {
   const host = new URL(request.url).hostname.toLowerCase();
-  return host.endsWith("workers.dev") || host === "localhost" || host === "127.0.0.1";
+  const localHost = host === "localhost" || host === "127.0.0.1";
+  const previewHost = host.endsWith("workers.dev");
+  return isOwnerRequest(request, env) && (localHost || previewHost);
 }
 
 type PlanTier = "free" | "starter" | "builder" | "pro";
@@ -4449,6 +4451,7 @@ export default {
     const routeKey = `${request.method} ${url.pathname}`;
 
     if (request.method === "GET" && url.pathname === "/health/providers") {
+      if (!isOwnerRequest(request, env)) return notFound();
       const ids = ["pi_signals", "moby_dick", "pi_thesis", "claude_haiku"];
       const results: Record<string, any> = {};
       for (const id of ids) {
@@ -4525,12 +4528,12 @@ export default {
     }
 
     if (request.method === "GET" && (url.pathname === "/admin/playground" || url.pathname === "/admin/playground-v2" || url.pathname === "/admin/run-simple")) {
-      if (!allowAdminUi(request)) return notFound();
+      if (!allowAdminUi(request, env)) return notFound();
       return handleAdminPlayground();
     }
 
     if (request.method === "POST" && (url.pathname === "/admin/playground/run" || url.pathname === "/admin/playground-v2/run" || url.pathname === "/admin/run-simple/run")) {
-      if (!allowAdminUi(request)) return notFound();
+      if (!allowAdminUi(request, env)) return notFound();
       return handleAdminPlaygroundResult(request, env);
     }
 
