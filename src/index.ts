@@ -148,6 +148,7 @@ type HumanAuth = {
   clerkUserId: string;
   buyerId: string;
   token: string;
+  tokenSource: "explicit" | "bearer" | "cookie";
 };
 
 function getCookieValue(request: Request, name: string): string | null {
@@ -169,15 +170,45 @@ function getBearerToken(request: Request): string | null {
   return match?.[1]?.trim() || null;
 }
 
+function isUnsafeMethod(method: string): boolean {
+  return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
+function isSameOriginRequest(request: Request): boolean {
+  const targetOrigin = new URL(request.url).origin;
+  const origin = request.headers.get("origin");
+  if (origin) return origin === targetOrigin;
+
+  const referer = request.headers.get("referer");
+  if (referer) {
+    try {
+      return new URL(referer).origin === targetOrigin;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
 async function requireHumanAuth(request: Request, env: Env, options?: { token?: string | null; redirect?: boolean }): Promise<HumanAuth | Response> {
   if (!env.CLERK_SECRET_KEY) {
     return jsonResponse({ error: "auth_not_configured", message: "Clerk secret key is not configured." }, 503);
   }
 
-  const sessionToken = options?.token?.trim() || getBearerToken(request) || getCookieValue(request, "__session");
+  const explicitToken = options?.token?.trim() || null;
+  const bearerToken = getBearerToken(request);
+  const cookieToken = getCookieValue(request, "__session");
+  const sessionToken = explicitToken || bearerToken || cookieToken;
   if (!sessionToken) {
     return options?.redirect ? redirectToLogin(request) : authUnauthorized("Sign in required.");
   }
+
+  const tokenSource: HumanAuth["tokenSource"] = explicitToken
+    ? "explicit"
+    : bearerToken
+      ? "bearer"
+      : "cookie";
 
   try {
     const payload = await verifyToken(sessionToken, { secretKey: env.CLERK_SECRET_KEY });
@@ -188,11 +219,22 @@ async function requireHumanAuth(request: Request, env: Env, options?: { token?: 
     return {
       clerkUserId,
       buyerId: `user:clerk:${clerkUserId}`,
-      token: sessionToken
+      token: sessionToken,
+      tokenSource
     };
   } catch {
     return options?.redirect ? redirectToLogin(request) : authUnauthorized("Session expired or invalid.");
   }
+}
+
+function requireMatchingHumanBuyer(request: Request, auth: HumanAuth, buyerId: string): Response | null {
+  if (auth.buyerId !== buyerId) {
+    return authUnauthorized("buyer_wallet does not match authenticated account");
+  }
+  if (auth.tokenSource === "cookie" && isUnsafeMethod(request.method) && !isSameOriginRequest(request)) {
+    return jsonResponse({ error: "forbidden", message: "cross-site cookie-authenticated requests are not allowed" }, 403);
+  }
+  return null;
 }
 
 function validateSpecialties(specialties: string[]): string[] {
@@ -1460,9 +1502,8 @@ async function handleThink(request: Request, env: Env): Promise<Response> {
   if (isHumanBuyerId(buyerWallet) && !ownerRequest) {
     const auth = await requireHumanAuth(request, env);
     if (auth instanceof Response) return auth;
-    if (auth.buyerId !== buyerWallet) {
-      return authUnauthorized("buyer_wallet does not match authenticated account");
-    }
+    const authError = requireMatchingHumanBuyer(request, auth, buyerWallet);
+    if (authError) return authError;
   }
 
   const plan = await resolvePlanTier(request, body, env, buyerWallet, ownerRequest);
@@ -2267,7 +2308,6 @@ async function getPayPalAccessToken(env: Env): Promise<string> {
 
 async function verifyPayPalWebhook(request: Request, env: Env, body: any): Promise<boolean> {
   if (!env.PAYPAL_WEBHOOK_ID) return false;
-  if (request.headers.get("x-paypal-test")) return true;
 
   const transmissionId = request.headers.get("paypal-transmission-id");
   const transmissionTime = request.headers.get("paypal-transmission-time");
@@ -2749,6 +2789,13 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
     return badRequest("rating must be happy|sad");
   }
 
+  if (isHumanBuyerId(buyerWallet)) {
+    const auth = await requireHumanAuth(request, env);
+    if (auth instanceof Response) return auth;
+    const authError = requireMatchingHumanBuyer(request, auth, buyerWallet);
+    if (authError) return authError;
+  }
+
   const thoughtRaw = await env.THOUGHTS.get(`thought:${thoughtId}`);
   if (!thoughtRaw) return badRequest("unknown thought_id");
 
@@ -2909,6 +2956,13 @@ async function handleDispute(request: Request, env: Env): Promise<Response> {
   if (!reason) return badRequest("reason is required");
   if (!buyerWallet) return badRequest("buyer_wallet is required");
 
+  if (isHumanBuyerId(buyerWallet)) {
+    const auth = await requireHumanAuth(request, env);
+    if (auth instanceof Response) return auth;
+    const authError = requireMatchingHumanBuyer(request, auth, buyerWallet);
+    if (authError) return authError;
+  }
+
   const thoughtKey = `thought:${thoughtId}`;
   const thoughtRaw = await env.THOUGHTS.get(thoughtKey);
   if (!thoughtRaw) return badRequest("unknown thought_id");
@@ -3009,6 +3063,13 @@ async function handleRefund(request: Request, env: Env): Promise<Response> {
   if (!thoughtId) return badRequest("thought_id is required");
   if (!buyerWallet) return badRequest("buyer_wallet is required");
   if (!reason) return badRequest("reason is required");
+
+  if (isHumanBuyerId(buyerWallet)) {
+    const auth = await requireHumanAuth(request, env);
+    if (auth instanceof Response) return auth;
+    const authError = requireMatchingHumanBuyer(request, auth, buyerWallet);
+    if (authError) return authError;
+  }
 
   const thoughtRaw = await env.THOUGHTS.get(`thought:${thoughtId}`);
   if (!thoughtRaw) return badRequest("unknown thought_id");
