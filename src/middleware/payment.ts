@@ -32,6 +32,15 @@ function b64Encode(obj: unknown): string {
   return btoa(JSON.stringify(obj));
 }
 
+function parseUsdAmount(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(/^\$/, "");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function b64DecodeJson(value: string): any {
   const decoded = atob(value);
   return JSON.parse(decoded);
@@ -97,6 +106,13 @@ function extractPayer(paymentPayload: any): string {
 
 function isVerifiedResponse(resp: any): boolean {
   return resp?.isValid === true;
+}
+
+function paymentInvalid(message: string): PaymentVerificationResult {
+  return {
+    ok: false,
+    response: jsonResponse({ error: "payment_invalid", message }, 402)
+  };
 }
 
 export async function verifyX402Payment(
@@ -190,11 +206,30 @@ export async function verifyX402Payment(
   }
 
   // Basic checks before facilitator
+  if (paymentRequirements.scheme && paymentRequirements.scheme !== "exact") {
+    return paymentInvalid("unsupported payment scheme");
+  }
+
   if (paymentRequirements.payTo && paymentRequirements.payTo !== env.PROFIT_WALLET) {
-    return {
-      ok: false,
-      response: jsonResponse({ error: "payment_invalid", message: "payTo mismatch" }, 402)
-    };
+    return paymentInvalid("payTo mismatch");
+  }
+
+  const expectedNetwork = env.X402_NETWORK || "eip155:8453";
+  if (paymentRequirements.network && paymentRequirements.network !== expectedNetwork) {
+    return paymentInvalid("network mismatch");
+  }
+
+  const expectedAsset = env.X402_ASSET || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+  if (paymentRequirements.asset && paymentRequirements.asset.toLowerCase() !== expectedAsset.toLowerCase()) {
+    return paymentInvalid("asset mismatch");
+  }
+
+  const paidAmount = parseUsdAmount(paymentRequirements.amount);
+  if (paidAmount == null) {
+    return paymentInvalid("invalid payment amount");
+  }
+  if (paidAmount + 1e-9 < requiredAmount) {
+    return paymentInvalid("insufficient payment amount");
   }
 
   const facilitator = env.X402_FACILITATOR_URL || "https://x402.org/facilitator";

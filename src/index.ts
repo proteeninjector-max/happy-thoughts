@@ -96,10 +96,26 @@ function textResponse(body: string, status = 200, headers?: Record<string, strin
   });
 }
 
+function htmlEscape(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function htmlResponse(body: string, status = 200, headers?: Record<string, string>): Response {
   return new Response(body, {
     status,
-    headers: { "content-type": "text/html; charset=utf-8", ...(headers ?? {}) }
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      ...(headers ?? {})
+    }
   });
 }
 
@@ -250,13 +266,54 @@ function normalizeDeliveryMode(value: unknown): "hosted" | "webhook" {
   return raw === "webhook" ? "webhook" : "hosted";
 }
 
+function assertSafeHttpsUrl(url: URL, field: string): void {
+  if (url.protocol !== "https:") {
+    throw new Error(`${field} must use https`);
+  }
+  if (!url.hostname) {
+    throw new Error(`${field} must include a hostname`);
+  }
+  if (url.username || url.password) {
+    throw new Error(`${field} must not include credentials`);
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local")
+  ) {
+    throw new Error(`${field} must not target localhost/local domains`);
+  }
+
+  const ipv4Match = hostname.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/);
+  if (ipv4Match) {
+    const parts = hostname.split(".").map((part) => Number(part));
+    if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+      throw new Error(`${field} has an invalid IPv4 host`);
+    }
+    if (
+      parts[0] === 10 ||
+      parts[0] === 127 ||
+      parts[0] === 0 ||
+      (parts[0] === 169 && parts[1] === 254) ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+      (parts[0] === 192 && parts[1] === 168)
+    ) {
+      throw new Error(`${field} must not target private IP space`);
+    }
+  }
+
+  if (hostname.includes(":")) {
+    throw new Error(`${field} must not use raw IPv6 hosts`);
+  }
+}
+
 function validatePublicUrl(value: string | null, field: string): string | null {
   if (!value) return null;
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:") {
-      throw new Error(`${field} must use https`);
-    }
+    assertSafeHttpsUrl(url, field);
     return url.toString();
   } catch (err: any) {
     throw new Error(err?.message || `${field} is invalid`);
@@ -267,9 +324,7 @@ function validateCallbackUrl(value: string | null): string | null {
   if (!value) return null;
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:") {
-      throw new Error("callback_url must use https");
-    }
+    assertSafeHttpsUrl(url, "callback_url");
     return url.toString();
   } catch (err: any) {
     throw new Error(err?.message || "callback_url is invalid");
@@ -1321,24 +1376,18 @@ async function handleWebAsk(request: Request, env: Env): Promise<Response> {
     body: JSON.stringify({ prompt, specialty, mode, buyer_wallet })
   });
   const apiResp = await handleThink(apiReq, env);
-  const payload = await apiResp.json().catch(() => ({} as any));
+  const payload: any = await apiResp.json().catch(() => ({}));
 
   if (!apiResp.ok) {
-    const message = String(payload?.message || `Request failed (${apiResp.status})`).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const message = htmlEscape(payload?.message || `Request failed (${apiResp.status})`);
     return htmlResponse(`<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Couldn’t complete the answer</title></head><body style="font-family:system-ui;padding:24px;background:#0b0b12;color:#f5f5f7;max-width:900px;margin:0 auto"><h1>Couldn’t complete the answer</h1><p>${message}</p><p><a href="/ask" style="color:#c084fc">← Back</a></p></body></html>`, apiResp.status, { "cache-control": "no-store" });
   }
 
-  const answer = String(payload?.thought || payload?.final_answer?.text || "No answer returned.")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  const confidence = String(payload?.confidence || payload?.confidence_reason || "—")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  const answer = htmlEscape(payload?.thought || payload?.final_answer?.text || "No answer returned.");
+  const confidence = htmlEscape(payload?.confidence || payload?.confidence_reason || "—");
   const seconds = Math.max(1, Math.round((payload?.response_time_ms || 0) / 1000));
 
-  return htmlResponse(`<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Answer</title></head><body style="font-family:system-ui;padding:24px;background:#0b0b12;color:#f5f5f7;max-width:900px;margin:0 auto"><h1>Answer</h1><p style="color:#b8b3c7">Done in ${seconds}s.</p><p style="color:#b8b3c7">Prompt: ${prompt.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><div style="white-space:pre-wrap;line-height:1.6;background:#151122;border:1px solid #2a2340;padding:20px;border-radius:16px">${answer}</div><p style="color:#b8b3c7;margin-top:16px">Confidence: ${confidence}</p><p style="margin-top:20px"><a href="/ask" style="color:#c084fc">← Ask another</a></p></body></html>`, 200, { "cache-control": "no-store" });
+  return htmlResponse(`<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Answer</title></head><body style="font-family:system-ui;padding:24px;background:#0b0b12;color:#f5f5f7;max-width:900px;margin:0 auto"><h1>Answer</h1><p style="color:#b8b3c7">Done in ${seconds}s.</p><p style="color:#b8b3c7">Prompt: ${htmlEscape(prompt)}</p><div style="white-space:pre-wrap;line-height:1.6;background:#151122;border:1px solid #2a2340;padding:20px;border-radius:16px">${answer}</div><p style="color:#b8b3c7;margin-top:16px">Confidence: ${confidence}</p><p style="margin-top:20px"><a href="/ask" style="color:#c084fc">← Ask another</a></p></body></html>`, 200, { "cache-control": "no-store" });
 }
 
 async function handleAskPage(request: Request, env: Env): Promise<Response> {
