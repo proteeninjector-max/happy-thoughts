@@ -48,8 +48,21 @@
       const STORAGE_KEY = 'happythoughts_auth_user';
       const REDIRECT_KEY = 'happythoughts_post_auth_redirect';
 
+      const safeRedirectPath = (value) => {
+        if (typeof value !== 'string') return '/ask';
+        const trimmed = value.trim();
+        if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return '/ask';
+        return trimmed;
+      };
+      const getClerkDomain = (publishableKey) => {
+        const encoded = publishableKey.split('_')[2] || '';
+        const decoded = atob(encoded).slice(0, -1);
+        if (!/^[a-z0-9.-]+$/i.test(decoded)) throw new Error('invalid Clerk domain');
+        if (!decoded.endsWith('.clerk.accounts.dev')) throw new Error('unexpected Clerk domain');
+        return decoded;
+      };
       const saveUser = (user) => localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-      const getRedirect = () => localStorage.getItem(REDIRECT_KEY) || '/ask';
+      const getRedirect = () => safeRedirectPath(localStorage.getItem(REDIRECT_KEY) || '/ask');
       const getAbsoluteRedirect = () => new URL(getRedirect(), window.location.origin).toString();
       const clearRedirect = () => localStorage.removeItem(REDIRECT_KEY);
 
@@ -64,8 +77,13 @@
         }
 
         authStatus.textContent = 'Continue with email.';
-        const encoded = config.clerkPublishableKey.split('_')[2] || '';
-        const clerkDomain = atob(encoded).slice(0, -1);
+        let clerkDomain = '';
+        try {
+          clerkDomain = getClerkDomain(config.clerkPublishableKey);
+        } catch {
+          authStatus.textContent = 'Login config looks invalid on this deployment.';
+          return;
+        }
         const script = document.createElement('script');
         script.async = true;
         script.crossOrigin = 'anonymous';

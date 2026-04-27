@@ -4146,6 +4146,16 @@ async function handleProviderMe(request: Request, env: Env): Promise<Response> {
   });
 }
 
+function getLeaseExpiryMs(job: any): number {
+  const parsed = Date.parse(job?.lease_expires_at || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isLeaseExpired(job: any, now = Date.now()): boolean {
+  const expiresAt = getLeaseExpiryMs(job);
+  return !expiresAt || expiresAt <= now;
+}
+
 async function handleProviderJobsNext(request: Request, env: Env): Promise<Response> {
   const provider = await getProviderByToken(request, env);
   if (!provider) return unauthorized();
@@ -4159,10 +4169,20 @@ async function handleProviderJobsNext(request: Request, env: Env): Promise<Respo
 
   const list = await env.THOUGHTS.list({ prefix: `provider-job:${provider.id}:` });
   let selectedJob: any = null;
+  const now = Date.now();
   for (const key of list.keys) {
     const raw = await env.THOUGHTS.get(key.name);
     if (!raw) continue;
     const job = JSON.parse(raw);
+
+    if (job.status === "leased" && isLeaseExpired(job, now)) {
+      job.status = "queued";
+      job.leased_to = null;
+      job.leased_at = null;
+      job.lease_expires_at = null;
+      await env.THOUGHTS.put(key.name, JSON.stringify(job));
+    }
+
     if (job.status === "queued") {
       selectedJob = job;
       break;
@@ -4173,7 +4193,6 @@ async function handleProviderJobsNext(request: Request, env: Env): Promise<Respo
     return ok({ job: null, retry_after_ms: 3000 });
   }
 
-  const now = Date.now();
   selectedJob.status = "leased";
   selectedJob.leased_to = provider.id;
   selectedJob.leased_at = new Date(now).toISOString();
@@ -4192,8 +4211,14 @@ async function handleProviderJobRespond(request: Request, env: Env, jobId: strin
   if (!raw) return notFound();
 
   const job = JSON.parse(raw);
-  if (job.leased_to !== provider.id && job.provider_id !== provider.id) {
+  if (job.provider_id !== provider.id) {
     return unauthorized("job does not belong to this provider");
+  }
+  if (job.status !== "leased" || job.leased_to !== provider.id) {
+    return badRequest("job must be actively leased before responding");
+  }
+  if (isLeaseExpired(job)) {
+    return badRequest("job lease expired; poll again before responding");
   }
 
   let body: any;
@@ -4241,6 +4266,16 @@ async function handleProviderJobFail(request: Request, env: Env, jobId: string):
   }
 
   const job = JSON.parse(raw);
+  if (job.provider_id !== provider.id) {
+    return unauthorized("job does not belong to this provider");
+  }
+  if (job.status !== "leased" || job.leased_to !== provider.id) {
+    return badRequest("job must be actively leased before failing");
+  }
+  if (isLeaseExpired(job)) {
+    return badRequest("job lease expired; poll again before failing");
+  }
+
   job.status = "failed";
   job.failed_at = new Date().toISOString();
   job.fail_reason = normalizeOptionalString(body?.reason, 80) || "provider_failed";

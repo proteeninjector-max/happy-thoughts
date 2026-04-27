@@ -2,6 +2,21 @@
   const STORAGE_KEY = 'happythoughts_auth_user';
   const REDIRECT_KEY = 'happythoughts_post_auth_redirect';
 
+  function safeRedirectPath(value) {
+    if (typeof value !== 'string') return '/ask';
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return '/ask';
+    return trimmed;
+  }
+
+  function getClerkDomain(publishableKey) {
+    const encoded = publishableKey.split('_')[2] || '';
+    const decoded = atob(encoded).slice(0, -1);
+    if (!/^[a-z0-9.-]+$/i.test(decoded)) throw new Error('invalid Clerk domain');
+    if (!decoded.endsWith('.clerk.accounts.dev')) throw new Error('unexpected Clerk domain');
+    return decoded;
+  }
+
   async function getAuthConfig() {
     const resp = await fetch('/auth/config');
     return resp.json();
@@ -12,7 +27,7 @@
   }
 
   function getRedirect() {
-    return localStorage.getItem(REDIRECT_KEY) || '/ask';
+    return safeRedirectPath(localStorage.getItem(REDIRECT_KEY) || '/ask');
   }
 
   function clearRedirect() {
@@ -31,12 +46,21 @@
     }
 
     authStatus.textContent = 'Continue with email.';
+    let clerkDomain = '';
+    try {
+      clerkDomain = getClerkDomain(config.clerkPublishableKey);
+    } catch {
+      authStatus.textContent = 'Login config looks invalid on this deployment.';
+      return;
+    }
     const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js';
     script.async = true;
+    script.crossOrigin = 'anonymous';
+    script.setAttribute('data-clerk-publishable-key', config.clerkPublishableKey);
+    script.src = `https://${clerkDomain}/npm/@clerk/clerk-js@latest/dist/clerk.browser.js`;
     script.onload = async () => {
       const Clerk = window.Clerk;
-      await Clerk.load({ publishableKey: config.clerkPublishableKey });
+      await Clerk.load();
 
       if (Clerk.user) {
         const email = Clerk.user.primaryEmailAddress?.emailAddress || '';
@@ -67,6 +91,9 @@
         afterSignInUrl: getRedirect(),
         afterSignUpUrl: getRedirect()
       });
+    };
+    script.onerror = () => {
+      authStatus.textContent = 'Could not load email login right now.';
     };
     document.head.appendChild(script);
   }

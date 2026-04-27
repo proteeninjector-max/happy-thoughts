@@ -5,6 +5,15 @@
   const ASK_DRAFT_KEY = "happythoughts_ask_draft";
   const RESUME_SUBMIT_KEY = "happythoughts_resume_submit_after_login";
   let authReady = null;
+
+  function getClerkDomain(publishableKey) {
+    const encoded = publishableKey.split('_')[2] || '';
+    const decoded = atob(encoded).slice(0, -1);
+    if (!/^[a-z0-9.-]+$/i.test(decoded)) throw new Error('invalid Clerk domain');
+    if (!decoded.endsWith('.clerk.accounts.dev')) throw new Error('unexpected Clerk domain');
+    return decoded;
+  }
+
   const els = {
     walletStatus: document.getElementById('wallet-status'),
     authButton: document.getElementById('auth-button'),
@@ -64,8 +73,7 @@
         const config = await fetch('/auth/config').then(r => r.json()).catch(() => ({ enabled: false }));
         if (!config?.enabled || !config?.clerkPublishableKey) return null;
 
-        const encoded = config.clerkPublishableKey.split('_')[2] || '';
-        const clerkDomain = atob(encoded).slice(0, -1);
+        const clerkDomain = getClerkDomain(config.clerkPublishableKey);
 
         await new Promise((resolve, reject) => {
           const existingScript = Array.from(document.scripts).find((s) => s.src.includes(clerkDomain));
