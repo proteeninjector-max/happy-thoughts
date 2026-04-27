@@ -3206,17 +3206,26 @@ async function handleGetBundle(id: string, env: Env): Promise<Response> {
 
   const bundle = JSON.parse(raw);
 
-  // Enrich with current provider score
   const score = await loadScore(bundle.provider_id, env);
 
   return ok({
-    ...bundle,
+    bundle_id: bundle.bundle_id,
+    provider_id: bundle.provider_id,
+    name: bundle.name,
+    description: bundle.description,
+    thought_ids: bundle.thought_ids,
+    thought_count: bundle.thought_count,
+    price_usdc: bundle.price_usdc,
+    created_at: bundle.created_at,
+    active: bundle.active,
     provider_happy_trail: score?.happy_trail ?? null,
     provider_tier: score?.tier ?? null
   });
 }
 
-async function handleGetReferral(wallet: string, env: Env): Promise<Response> {
+async function handleGetReferral(request: Request, wallet: string, env: Env): Promise<Response> {
+  if (!isOwnerRequest(request, env)) return notFound();
+
   const referralKey = `referral:${wallet}`;
   const raw = await env.REFERRALS.get(referralKey);
   if (!raw)
@@ -4500,7 +4509,7 @@ export default {
 
     if (request.method === "GET" && url.pathname.startsWith("/referral/")) {
       const wallet = url.pathname.slice("/referral/".length);
-      return handleGetReferral(wallet, env);
+      return handleGetReferral(request, wallet, env);
     }
 
     if (request.method === "GET" && url.pathname === "/admin/buyer-entitlement") {
