@@ -724,16 +724,16 @@ async function isSybilWallet(
   rating: string,
   env: Env
 ): Promise<boolean> {
-  // Get this buyer's rating history
   const buyerHistoryRaw = await env.FEEDBACK.get(`sybil:${buyerWallet}`);
   const buyerHistory: Record<string, string> = buyerHistoryRaw ? JSON.parse(buyerHistoryRaw) : {};
 
-  // Record this rating in their history
   buyerHistory[providerId] = rating;
-  await env.FEEDBACK.put(`sybil:${buyerWallet}`, JSON.stringify(buyerHistory));
+  const boundedHistory = Object.fromEntries(
+    Object.entries(buyerHistory).slice(-MAX_SYBIL_HISTORY_ENTRIES)
+  );
+  await env.FEEDBACK.put(`sybil:${buyerWallet}`, JSON.stringify(boundedHistory));
 
-  // Get all sybil history keys to compare patterns
-  const allKeys = await env.FEEDBACK.list({ prefix: "sybil:" });
+  const allKeys = await env.FEEDBACK.list({ prefix: "sybil:", limit: MAX_SYBIL_WALLETS_TO_COMPARE });
   let matchCount = 0;
 
   for (const key of allKeys.keys) {
@@ -742,16 +742,14 @@ async function isSybilWallet(
     if (!otherRaw) continue;
     const otherHistory: Record<string, string> = JSON.parse(otherRaw);
 
-    // Compare overlap: how many providers did both wallets rate identically?
-    const sharedProviders = Object.keys(buyerHistory).filter(
-      (pid) => otherHistory[pid] === buyerHistory[pid]
+    const sharedProviders = Object.keys(boundedHistory).filter(
+      (pid) => otherHistory[pid] === boundedHistory[pid]
     );
 
-    // Sybil signal: 3+ identical ratings with same providers
     if (sharedProviders.length >= 3) matchCount++;
   }
 
-  return matchCount >= 2; // 2+ other wallets with identical pattern = sybil cluster
+  return matchCount >= 2;
 }
 
 function isOwnerRequest(request: Request, env: Env): boolean {
@@ -795,6 +793,12 @@ type PlanConfig = {
 };
 
 const FREE_CONSENSUS_DAILY_LIMIT = 3;
+const MAX_SYBIL_HISTORY_ENTRIES = 32;
+const MAX_SYBIL_WALLETS_TO_COMPARE = 200;
+const MAX_PROVIDER_FLAGS_TO_SCAN = 200;
+const MAX_PROVIDER_JOBS_TO_SCAN = 100;
+const MAX_DISPUTE_REASON_LEN = 500;
+const MAX_REFUND_REASON_LEN = 280;
 const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
   free: { verifiedMonthlyLimit: 0, promptCharLimit: 4000, monthlyPriceUsd: 0 },
   starter: { verifiedMonthlyLimit: 100, promptCharLimit: 6000, monthlyPriceUsd: 9 },
@@ -2948,7 +2952,7 @@ async function handleDispute(request: Request, env: Env): Promise<Response> {
 
   const thoughtId = typeof body?.thought_id === "string" ? body.thought_id.trim() : "";
   const providerId = typeof body?.provider_id === "string" ? body.provider_id.trim() : "";
-  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+  const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, MAX_DISPUTE_REASON_LEN) : "";
   const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
 
   if (!thoughtId) return badRequest("thought_id is required");
@@ -2990,7 +2994,7 @@ async function handleDispute(request: Request, env: Env): Promise<Response> {
 
   await env.FLAGS.put(`flag:${providerId}:${thoughtId}`, JSON.stringify(disputeRecord));
 
-  const list = await env.FLAGS.list({ prefix: `flag:${providerId}:` });
+  const list = await env.FLAGS.list({ prefix: `flag:${providerId}:`, limit: MAX_PROVIDER_FLAGS_TO_SCAN });
   const windowStart = now.getTime() - 7 * 24 * 60 * 60 * 1000;
   const uniqueBuyers = new Set<string>();
 
@@ -3058,7 +3062,7 @@ async function handleRefund(request: Request, env: Env): Promise<Response> {
 
   const thoughtId = typeof body?.thought_id === "string" ? body.thought_id.trim() : "";
   const buyerWallet = typeof body?.buyer_wallet === "string" ? body.buyer_wallet.trim() : "";
-  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+  const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, MAX_REFUND_REASON_LEN) : "";
 
   if (!thoughtId) return badRequest("thought_id is required");
   if (!buyerWallet) return badRequest("buyer_wallet is required");
@@ -4172,7 +4176,7 @@ async function handleProviderMe(request: Request, env: Env): Promise<Response> {
   if (!provider) return unauthorized();
 
   const score = await loadScore(provider.id, env);
-  const jobs = await env.THOUGHTS.list({ prefix: `provider-job:${provider.id}:` });
+  const jobs = await env.THOUGHTS.list({ prefix: `provider-job:${provider.id}:`, limit: MAX_PROVIDER_JOBS_TO_SCAN });
   let queued_jobs = 0;
   let leased_jobs = 0;
   for (const key of jobs.keys) {
@@ -4228,7 +4232,7 @@ async function handleProviderJobsNext(request: Request, env: Env): Promise<Respo
   provider.last_provider_poll_at = new Date().toISOString();
   await persistProvider(env, provider);
 
-  const list = await env.THOUGHTS.list({ prefix: `provider-job:${provider.id}:` });
+  const list = await env.THOUGHTS.list({ prefix: `provider-job:${provider.id}:`, limit: MAX_PROVIDER_JOBS_TO_SCAN });
   let selectedJob: any = null;
   const now = Date.now();
   for (const key of list.keys) {
