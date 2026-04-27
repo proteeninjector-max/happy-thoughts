@@ -495,7 +495,7 @@ export async function runConsensus(prompt: string, specialty: string, env: Env):
   );
 
   const successfulAnswers = answers.filter((item) => item.ok && item.answer);
-  const failedProviders = answers
+  const failedProviders: ConsensusResult["failed_providers"] = answers
     .filter((item) => !item.ok)
     .map((item) => ({ provider: item.provider, model: item.model, error: item.error || "unknown error" }));
 

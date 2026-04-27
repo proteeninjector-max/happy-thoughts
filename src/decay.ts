@@ -23,7 +23,7 @@ export async function runDecay(env: {
   let cursor: string | undefined;
   do {
     const page = await env.SCORES.list({ prefix: "score:", cursor });
-    cursor = page.cursor ?? undefined;
+    cursor = page.list_complete ? undefined : page.cursor;
 
     for (const key of page.keys) {
       processed++;

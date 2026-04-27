@@ -793,6 +793,7 @@ type PlanConfig = {
 };
 
 const FREE_CONSENSUS_DAILY_LIMIT = 3;
+const DEFAULT_MAX_VERIFIED_OUTPUT_TOKENS = 1200;
 const MAX_SYBIL_HISTORY_ENTRIES = 32;
 const MAX_SYBIL_WALLETS_TO_COMPARE = 200;
 const MAX_PROVIDER_FLAGS_TO_SCAN = 200;
@@ -812,6 +813,11 @@ function isPlanTier(value: unknown): value is PlanTier {
 
 function getPlanConfig(plan: PlanTier): PlanConfig {
   return PLAN_CONFIG[plan] || PLAN_CONFIG.free;
+}
+
+function envInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw || "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function getUtcDayKey(now = new Date()): string {
@@ -929,7 +935,14 @@ async function buildVerifiedUsageSnapshot(env: Env, buyerWallet: string, plan: P
   return buildUsageSnapshot(limit, used, "month");
 }
 
-function getPlanCatalog() {
+function getPlanCatalog(): Record<PlanTier, {
+  plan: PlanTier;
+  price_usd_monthly: number;
+  verified_quota_monthly: number;
+  prompt_char_limit: number;
+  verification_enabled: boolean;
+  free_consensus_daily_limit?: number;
+}> {
   return {
     free: {
       plan: "free",
@@ -2681,7 +2694,7 @@ async function handleMyPlan(request: Request, env: Env): Promise<Response> {
   const entitlement = await getBuyerEntitlement(env, buyerId);
   const raw = await env.BUYERS.get(buyerEntitlementKey(buyerId));
   const storedEntitlement = raw ? JSON.parse(raw) : null;
-  const plan = entitlement?.plan || (storedEntitlement?.plan && isPlanTier(storedEntitlement.plan) ? storedEntitlement.plan : "free");
+  const plan: PlanTier = entitlement?.plan || (storedEntitlement?.plan && isPlanTier(storedEntitlement.plan) ? storedEntitlement.plan : "free");
   const verifiedUsage = await buildVerifiedUsageSnapshot(env, buyerId, plan);
   const freeConsensusUsage = buildUsageSnapshot(FREE_CONSENSUS_DAILY_LIMIT, await getFreeConsensusUsage(env, buyerId), "day");
 
@@ -3442,6 +3455,41 @@ async function handlePreview(): Promise<Response> {
       "This thought is not investment advice. Not a solicitation to buy or sell any asset. Past performance does not guarantee future results.",
     note: "This is a preview. Public free usage defaults to capped Consensus answers, with Verified as the paid trust layer."
   });
+}
+
+async function handleAdminPlaygroundResult(request: Request, env: Env): Promise<Response> {
+  let body: any;
+  try {
+    body = await request.clone().json();
+  } catch {
+    return badRequest("invalid JSON body");
+  }
+
+  const mode = body?.mode === "consensus" ? "consensus" : "quick";
+  const payload = {
+    prompt: typeof body?.prompt === "string" ? body.prompt : "",
+    specialty: typeof body?.specialty === "string" ? body.specialty : "other/general",
+    buyer_wallet: typeof body?.buyer_wallet === "string" ? body.buyer_wallet : "",
+    min_confidence: typeof body?.min_confidence === "number" ? body.min_confidence : 0,
+    force_fresh: Boolean(body?.force_fresh),
+    mode
+  };
+
+  const forwardedHeaders = new Headers({ "content-type": "application/json" });
+  const ownerHeader = env.OWNER_KEY_HEADER || "X-OWNER-KEY";
+  const ownerKey = request.headers.get(ownerHeader);
+  if (ownerKey) forwardedHeaders.set(ownerHeader, ownerKey);
+
+  const targetPath = mode === "consensus" ? "/internal/consensus" : "/internal/think";
+  const forwardedRequest = new Request(new URL(targetPath, request.url).toString(), {
+    method: "POST",
+    headers: forwardedHeaders,
+    body: JSON.stringify(payload)
+  });
+
+  return mode === "consensus"
+    ? handleInternalConsensus(forwardedRequest, env)
+    : handleInternalThink(forwardedRequest, env);
 }
 
 async function handleAdminPlayground(): Promise<Response> {
