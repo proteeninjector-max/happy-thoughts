@@ -1,7 +1,7 @@
 name = "happythoughts"
 main = "src/index.ts"
 compatibility_date = "2025-03-01"
-account_id = "e99a0bfb3b03494b53b2d47adcc9072a"
+account_id = "CLOUDFLARE_ACCOUNT_ID"
 workers_dev = true
 routes = [
   { pattern = "happythoughts.cc", custom_domain = true },
@@ -11,11 +11,11 @@ legacy_assets = "./public"
 
 [vars]
 # PLACEHOLDER — set in deployment environment
-PROFIT_WALLET = "0x170992058429d3d52615fef70c1006f5e5d6467c"
+PROFIT_WALLET = "YOUR_PROFIT_WALLET"
 X402_FACILITATOR_URL = "https://x402.org/facilitator"
 X402_NETWORK = "eip155:8453"
 X402_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-CLERK_PUBLISHABLE_KEY = "pk_test_dHJ1c3R5LWxpb25maXNoLTcxLmNsZXJrLmFjY291bnRzLmRldiQ"
+CLERK_PUBLISHABLE_KEY = "pk_live_REPLACE_IN_DEPLOYMENT"
 
 # Secrets (set via `wrangler secret put`)
 # ANTHROPIC_API_KEY
@@ -40,53 +40,53 @@ CLERK_PUBLISHABLE_KEY = "pk_test_dHJ1c3R5LWxpb25maXNoLTcxLmNsZXJrLmFjY291bnRzLmR
 
 [[kv_namespaces]]
 binding = "PROVIDERS"
-id = "fede9fee068245129f77eae293646062"
-preview_id = "fede9fee068245129f77eae293646062"
+id = "KV_NAMESPACE_ID_PROVIDERS"
+preview_id = "KV_NAMESPACE_ID_PROVIDERS_PREVIEW"
 
 [[kv_namespaces]]
 binding = "SCORES"
-id = "0876c1098a9d4a5a859af9b3e60b699a"
-preview_id = "0876c1098a9d4a5a859af9b3e60b699a"
+id = "KV_NAMESPACE_ID_SCORES"
+preview_id = "KV_NAMESPACE_ID_SCORES_PREVIEW"
 
 [[kv_namespaces]]
 binding = "THOUGHTS"
-id = "116a5f81ce9f4e60a0a78a7f7f498567"
-preview_id = "116a5f81ce9f4e60a0a78a7f7f498567"
+id = "KV_NAMESPACE_ID_THOUGHTS"
+preview_id = "KV_NAMESPACE_ID_THOUGHTS_PREVIEW"
 
 [[kv_namespaces]]
 binding = "CACHE"
-id = "d2f571477f724656a105badac07d4ffe"
-preview_id = "d2f571477f724656a105badac07d4ffe"
+id = "KV_NAMESPACE_ID_CACHE"
+preview_id = "KV_NAMESPACE_ID_CACHE_PREVIEW"
 
 [[kv_namespaces]]
 binding = "BUNDLES"
-id = "8d44126329a247cfb5d04110295e6a86"
-preview_id = "8d44126329a247cfb5d04110295e6a86"
+id = "KV_NAMESPACE_ID_BUNDLES"
+preview_id = "KV_NAMESPACE_ID_BUNDLES_PREVIEW"
 
 [[kv_namespaces]]
 binding = "BUYERS"
-id = "6a1de3b847a54017be19f265acac6238"
-preview_id = "6a1de3b847a54017be19f265acac6238"
+id = "KV_NAMESPACE_ID_BUYERS"
+preview_id = "KV_NAMESPACE_ID_BUYERS_PREVIEW"
 
 [[kv_namespaces]]
 binding = "FEEDBACK"
-id = "3f36a85312d941f1a6babacd69ae58ab"
-preview_id = "3f36a85312d941f1a6babacd69ae58ab"
+id = "KV_NAMESPACE_ID_FEEDBACK"
+preview_id = "KV_NAMESPACE_ID_FEEDBACK_PREVIEW"
 
 [[kv_namespaces]]
 binding = "FLAGS"
-id = "de59fb23a8714e9bb1ab8b733849ef3c"
-preview_id = "de59fb23a8714e9bb1ab8b733849ef3c"
+id = "KV_NAMESPACE_ID_FLAGS"
+preview_id = "KV_NAMESPACE_ID_FLAGS_PREVIEW"
 
 [[kv_namespaces]]
 binding = "REFERRALS"
-id = "59b190e4adf74c0f9cd04a08bec50f07"
-preview_id = "59b190e4adf74c0f9cd04a08bec50f07"
+id = "KV_NAMESPACE_ID_REFERRALS"
+preview_id = "KV_NAMESPACE_ID_REFERRALS_PREVIEW"
 
 [[kv_namespaces]]
 binding = "AGREEMENTS"
-id = "0f8290d5012a43d3993d72e3e2160be4"
-preview_id = "0f8290d5012a43d3993d72e3e2160be4"
+id = "KV_NAMESPACE_ID_AGREEMENTS"
+preview_id = "KV_NAMESPACE_ID_AGREEMENTS_PREVIEW"
 
 [triggers]
 crons = ["0 6 * * *"]
@@ -96,62 +96,62 @@ name = "happythoughts-dev"
 workers_dev = true
 
 [env.dev.vars]
-PROFIT_WALLET = "0x170992058429d3d52615fef70c1006f5e5d6467c"
+PROFIT_WALLET = "YOUR_PROFIT_WALLET"
 X402_FACILITATOR_URL = "https://x402.org/facilitator"
 X402_NETWORK = "eip155:8453"
 X402_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-CLERK_PUBLISHABLE_KEY = "pk_test_dHJ1c3R5LWxpb25maXNoLTcxLmNsZXJrLmFjY291bnRzLmRldiQ"
+CLERK_PUBLISHABLE_KEY = "CLERK_DEV_PUBLISHABLE_KEY"
 MOBY_ENDPOINT_BASE = "https://moby.proteeninjector.com/moby"
 
 [[env.dev.kv_namespaces]]
 binding = "PROVIDERS"
-id = "620f82cd87f04e5a8512323d9cdab470"
-preview_id = "620f82cd87f04e5a8512323d9cdab470"
+id = "DEV_KV_NAMESPACE_ID_PROVIDERS"
+preview_id = "DEV_KV_NAMESPACE_ID_PROVIDERS_PREVIEW"
 
 [[env.dev.kv_namespaces]]
 binding = "SCORES"
-id = "7696416b0c1442fb9f7114e62704befc"
-preview_id = "7696416b0c1442fb9f7114e62704befc"
+id = "DEV_KV_NAMESPACE_ID_SCORES"
+preview_id = "DEV_KV_NAMESPACE_ID_SCORES_PREVIEW"
 
 [[env.dev.kv_namespaces]]
 binding = "THOUGHTS"
-id = "725722116bb2452ca63c8ae7517da6ce"
-preview_id = "725722116bb2452ca63c8ae7517da6ce"
+id = "DEV_KV_NAMESPACE_ID_THOUGHTS"
+preview_id = "DEV_KV_NAMESPACE_ID_THOUGHTS_PREVIEW"
 
 [[env.dev.kv_namespaces]]
 binding = "CACHE"
-id = "6c0b05139f424dc9bdefe8a59e400a58"
-preview_id = "6c0b05139f424dc9bdefe8a59e400a58"
+id = "DEV_KV_NAMESPACE_ID_CACHE"
+preview_id = "DEV_KV_NAMESPACE_ID_CACHE_PREVIEW"
 
 [[env.dev.kv_namespaces]]
 binding = "BUNDLES"
-id = "f9c87f086d684d04980c2d9638a2b3d8"
-preview_id = "f9c87f086d684d04980c2d9638a2b3d8"
+id = "DEV_KV_NAMESPACE_ID_BUNDLES"
+preview_id = "DEV_KV_NAMESPACE_ID_BUNDLES_PREVIEW"
 
 [[env.dev.kv_namespaces]]
 binding = "BUYERS"
-id = "b087ab26d9d54ccba28b3cd8a630d245"
-preview_id = "b087ab26d9d54ccba28b3cd8a630d245"
+id = "DEV_KV_NAMESPACE_ID_BUYERS"
+preview_id = "DEV_KV_NAMESPACE_ID_BUYERS_PREVIEW"
 
 [[env.dev.kv_namespaces]]
 binding = "FEEDBACK"
-id = "023d96437a6540e0a0de3c291b3a7675"
-preview_id = "023d96437a6540e0a0de3c291b3a7675"
+id = "DEV_KV_NAMESPACE_ID_FEEDBACK"
+preview_id = "DEV_KV_NAMESPACE_ID_FEEDBACK_PREVIEW"
 
 [[env.dev.kv_namespaces]]
 binding = "FLAGS"
-id = "6ba8e325a0184fe5b55b1e7364f18a73"
-preview_id = "6ba8e325a0184fe5b55b1e7364f18a73"
+id = "DEV_KV_NAMESPACE_ID_FLAGS"
+preview_id = "DEV_KV_NAMESPACE_ID_FLAGS_PREVIEW"
 
 [[env.dev.kv_namespaces]]
 binding = "REFERRALS"
-id = "9dc1fe3f540342be8453318eaaced448"
-preview_id = "9dc1fe3f540342be8453318eaaced448"
+id = "DEV_KV_NAMESPACE_ID_REFERRALS"
+preview_id = "DEV_KV_NAMESPACE_ID_REFERRALS_PREVIEW"
 
 [[env.dev.kv_namespaces]]
 binding = "AGREEMENTS"
-id = "23fb613b4cb64cfa8bb34585cebae8bf"
-preview_id = "23fb613b4cb64cfa8bb34585cebae8bf"
+id = "DEV_KV_NAMESPACE_ID_AGREEMENTS"
+preview_id = "DEV_KV_NAMESPACE_ID_AGREEMENTS_PREVIEW"
 
 [env.dev.triggers]
 crons = ["0 6 * * *"]

@@ -286,19 +286,44 @@
 
   function renderPlans(plans) {
     const ordered = [plans.starter, plans.builder, plans.pro].filter(Boolean);
-    els.upgradeGrid.innerHTML = ordered.map((plan) => `
-      <article class="card plan-card glass">
-        <div class="plan-name">${plan.plan}</div>
-        <div class="plan-price">$${plan.price_usd_monthly}</div>
-        <div class="plan-meta">
-          <div>${plan.verified_quota_monthly ?? 0} fact-checking requests / month</div>
-          <div>${plan.prompt_char_limit} character prompt limit</div>
-        </div>
-        <div class="cta-row" style="margin-top:16px;">
-          <button class="btn btn-secondary plan-select" type="button" data-plan="${plan.plan}">Choose ${plan.plan}</button>
-        </div>
-      </article>
-    `).join('');
+    const cards = ordered.map((plan) => {
+      const article = document.createElement('article');
+      article.className = 'card plan-card glass';
+
+      const name = document.createElement('div');
+      name.className = 'plan-name';
+      name.textContent = plan.plan;
+
+      const price = document.createElement('div');
+      price.className = 'plan-price';
+      price.textContent = `$${plan.price_usd_monthly}`;
+
+      const meta = document.createElement('div');
+      meta.className = 'plan-meta';
+      [
+        `${plan.verified_quota_monthly ?? 0} fact-checking requests / month`,
+        `${plan.prompt_char_limit} character prompt limit`
+      ].forEach((text) => {
+        const row = document.createElement('div');
+        row.textContent = text;
+        meta.appendChild(row);
+      });
+
+      const ctaRow = document.createElement('div');
+      ctaRow.className = 'cta-row';
+      ctaRow.style.marginTop = '16px';
+      const button = document.createElement('button');
+      button.className = 'btn btn-secondary plan-select';
+      button.type = 'button';
+      button.dataset.plan = plan.plan;
+      button.textContent = `Choose ${plan.plan}`;
+      ctaRow.appendChild(button);
+
+      article.append(name, price, meta, ctaRow);
+      return article;
+    });
+
+    els.upgradeGrid.replaceChildren(...cards);
 
     els.upgradeGrid.querySelectorAll('.plan-select').forEach((button) => {
       button.addEventListener('click', () => {
@@ -315,7 +340,13 @@
   async function loadPlans() {
     const { ok, data } = await api('/plans');
     if (!ok) {
-      els.upgradeGrid.innerHTML = '<article class="card plan-card glass"><div class="plan-name">Plans unavailable</div></article>';
+      const article = document.createElement('article');
+      article.className = 'card plan-card glass';
+      const title = document.createElement('div');
+      title.className = 'plan-name';
+      title.textContent = 'Plans unavailable';
+      article.appendChild(title);
+      els.upgradeGrid.replaceChildren(article);
       return;
     }
     renderPlans(data.plans || {});

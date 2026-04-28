@@ -3,5 +3,7 @@ node_modules/.package-lock.json
 .wrangler/
 .env
 .env.*
+wrangler.local.toml
+wrangler.secrets.toml
 worker-configuration.d.ts
 backups/

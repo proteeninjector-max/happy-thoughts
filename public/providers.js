@@ -1,5 +1,4 @@
 const API_BASE = "https://happythoughts.proteeninjector.workers.dev";
-const storageKey = "happythoughts_provider_token_session";
 
 const form = document.getElementById("provider-auth-form");
 const tokenInput = document.getElementById("provider-token");
@@ -30,8 +29,7 @@ const els = {
   status: document.getElementById("provider-status")
 };
 
-let currentToken = sessionStorage.getItem(storageKey) || "";
-if (currentToken) tokenInput.value = currentToken;
+let currentToken = "";
 
 function setNotice(el, text, tone = "default") {
   el.textContent = text;
@@ -62,7 +60,7 @@ function paintDot(status) {
 }
 
 function updateQuickstarts(token) {
-  const safe = token || "YOUR_TOKEN";
+  const safe = token ? "YOUR_TOKEN" : "YOUR_TOKEN";
   quickstartPoll.textContent = `curl ${API_BASE}/provider/jobs/next \\
   -H "Authorization: Bearer ${safe}"`;
   quickstartRespond.textContent = `curl -X POST ${API_BASE}/provider/jobs/JOB_ID/respond \\
@@ -160,7 +158,6 @@ async function loadProvider() {
     setNotice(authStatus, "Paste a provider token first.", "error");
     return;
   }
-  sessionStorage.setItem(storageKey, currentToken);
   updateQuickstarts(currentToken);
   setNotice(authStatus, "Loading provider status…");
   try {
@@ -189,13 +186,18 @@ async function runAction(action) {
     if (action === "rotate" && data.provider_token) {
       currentToken = data.provider_token;
       tokenInput.value = currentToken;
-      sessionStorage.setItem(storageKey, currentToken);
       updateQuickstarts(currentToken);
     }
     if (action === "revoke") {
-      sessionStorage.removeItem(storageKey);
+      currentToken = "";
+      tokenInput.value = "";
     }
-    setNotice(actionStatus, JSON.stringify(data, null, 2), "success");
+    const statusMessage = action === "rotate"
+      ? "Provider token rotated. Copy the new token from the password field now; it is not persisted in the browser."
+      : action === "revoke"
+        ? "Provider token revoked. Browser copy cleared."
+        : `Provider ${action} completed.`;
+    setNotice(actionStatus, statusMessage, "success");
     await loadProvider();
   } catch (err) {
     setNotice(actionStatus, err.message || `Failed to ${action}.`, "error");
@@ -214,7 +216,6 @@ refreshBtn.addEventListener("click", async () => {
 clearBtn.addEventListener("click", () => {
   currentToken = "";
   tokenInput.value = "";
-  sessionStorage.removeItem(storageKey);
   updateQuickstarts("");
   setNotice(authStatus, "Token cleared.");
 });
@@ -224,4 +225,3 @@ actionButtons.forEach((btn) => {
 });
 
 updateQuickstarts(currentToken);
-if (currentToken) loadProvider();

@@ -15,17 +15,36 @@ async function api(path) {
 
 function renderPlans(plans) {
   const ordered = [plans.free, plans.starter, plans.builder, plans.pro].filter(Boolean);
-  plansGrid.innerHTML = ordered.map((plan) => `
-    <article class="card plan-card glass">
-      <div class="plan-name">${plan.plan}</div>
-      <div class="plan-price">${plan.price_usd_monthly === 0 ? "$0" : `$${plan.price_usd_monthly}`}</div>
-      <div class="plan-meta">
-        <div>Fact-checking / month: ${plan.verified_quota_monthly ?? 0}</div>
-        <div>Prompt limit: ${plan.prompt_char_limit}</div>
-        ${typeof plan.free_consensus_daily_limit === "number" ? `<div>Free consensus / day: ${plan.free_consensus_daily_limit}</div>` : ""}
-      </div>
-    </article>
-  `).join("");
+  plansGrid.replaceChildren(...ordered.map((plan) => {
+    const article = document.createElement("article");
+    article.className = "card plan-card glass";
+
+    const name = document.createElement("div");
+    name.className = "plan-name";
+    name.textContent = plan.plan;
+
+    const price = document.createElement("div");
+    price.className = "plan-price";
+    price.textContent = plan.price_usd_monthly === 0 ? "$0" : `$${plan.price_usd_monthly}`;
+
+    const meta = document.createElement("div");
+    meta.className = "plan-meta";
+    const rows = [
+      `Fact-checking / month: ${plan.verified_quota_monthly ?? 0}`,
+      `Prompt limit: ${plan.prompt_char_limit}`
+    ];
+    if (typeof plan.free_consensus_daily_limit === "number") {
+      rows.push(`Free consensus / day: ${plan.free_consensus_daily_limit}`);
+    }
+    rows.forEach((text) => {
+      const row = document.createElement("div");
+      row.textContent = text;
+      meta.appendChild(row);
+    });
+
+    article.append(name, price, meta);
+    return article;
+  }));
 }
 
 async function loadPlans() {
@@ -34,7 +53,16 @@ async function loadPlans() {
     const data = await api("/plans");
     renderPlans(data.plans || {});
   } catch (err) {
-    plansGrid.innerHTML = `<article class="card plan-card glass"><div class="plan-name">Plans unavailable right now</div><div class="plan-meta">We couldn’t load live plan data from the backend. ${err.message || err}</div></article>`;
+    const article = document.createElement("article");
+    article.className = "card plan-card glass";
+    const title = document.createElement("div");
+    title.className = "plan-name";
+    title.textContent = "Plans unavailable right now";
+    const meta = document.createElement("div");
+    meta.className = "plan-meta";
+    meta.textContent = `We couldn’t load live plan data from the backend. ${err?.message || err}`;
+    article.append(title, meta);
+    plansGrid.replaceChildren(article);
   }
 }
 

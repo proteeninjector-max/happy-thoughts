@@ -82,17 +82,26 @@ const FOUNDING_PROVIDER_MAP: Record<string, string> = {
   "trading/thesis": "pi_thesis"
 };
 
-function jsonResponse(body: unknown, status = 200): Response {
+function securityHeaders(): Record<string, string> {
+  return {
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+    "referrer-policy": "strict-origin-when-cross-origin",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY"
+  };
+}
+
+function jsonResponse(body: unknown, status = 200, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" }
+    headers: { "content-type": "application/json", ...securityHeaders(), ...(headers ?? {}) }
   });
 }
 
 function textResponse(body: string, status = 200, headers?: Record<string, string>): Response {
   return new Response(body, {
     status,
-    headers: { "content-type": "text/plain", ...(headers ?? {}) }
+    headers: { "content-type": "text/plain", ...securityHeaders(), ...(headers ?? {}) }
   });
 }
 
@@ -110,13 +119,32 @@ function htmlResponse(body: string, status = 200, headers?: Record<string, strin
     status,
     headers: {
       "content-type": "text/html; charset=utf-8",
+      ...securityHeaders(),
       "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-      "referrer-policy": "no-referrer",
-      "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
       ...(headers ?? {})
     }
   });
+}
+
+function enforceHttps(request: Request): Response | null {
+  const url = new URL(request.url);
+  if (url.protocol !== "http:") return null;
+
+  const host = url.hostname.toLowerCase();
+  if (host === "localhost" || host === "127.0.0.1") return null;
+
+  const httpsUrl = new URL(request.url);
+  httpsUrl.protocol = "https:";
+
+  if (request.method === "GET" || request.method === "HEAD") {
+    return Response.redirect(httpsUrl.toString(), 308);
+  }
+
+  return jsonResponse(
+    { error: "https_required", message: "Use HTTPS for this endpoint." },
+    426,
+    { location: httpsUrl.toString() }
+  );
 }
 
 function ok(body: unknown, status = 200): Response {
@@ -3486,10 +3514,13 @@ async function handleAdminPlaygroundResult(request: Request, env: Env): Promise<
     mode
   };
 
+  if (!env.OWNER_KEY || typeof body?.owner_key !== "string" || body.owner_key !== env.OWNER_KEY) {
+    return authUnauthorized("Owner key required.");
+  }
+
   const forwardedHeaders = new Headers({ "content-type": "application/json" });
   const ownerHeader = env.OWNER_KEY_HEADER || "X-OWNER-KEY";
-  const ownerKey = request.headers.get(ownerHeader);
-  if (ownerKey) forwardedHeaders.set(ownerHeader, ownerKey);
+  forwardedHeaders.set(ownerHeader, env.OWNER_KEY);
 
   const targetPath = mode === "consensus" ? "/internal/consensus" : "/internal/think";
   const forwardedRequest = new Request(new URL(targetPath, request.url).toString(), {
@@ -3727,10 +3758,6 @@ async function handleAdminPlayground(): Promise<Response> {
       rawOutput: document.getElementById('rawOutput')
     };
 
-    const STORAGE_KEY = 'ht_admin_playground_owner_key';
-    const savedKey = sessionStorage.getItem(STORAGE_KEY);
-    if (savedKey) els.ownerKey.value = savedKey;
-
     function setStatus(text, ok = true) {
       els.status.textContent = text;
       els.status.className = ok ? 'status-ok' : 'status-bad';
@@ -3852,17 +3879,16 @@ async function handleAdminPlayground(): Promise<Response> {
         setStatus('Owner key required.', false);
         return;
       }
-      sessionStorage.setItem(STORAGE_KEY, ownerKey);
 
-      const mode = els.mode.value;
-      const path = mode === 'consensus' ? '/internal/consensus' : '/internal/think';
+      const path = '/admin/playground/run';
       const payload = {
+        owner_key: ownerKey,
         prompt: els.prompt.value,
         specialty: els.specialty.value.trim(),
         buyer_wallet: els.buyerWallet.value.trim(),
         min_confidence: Number(els.minConfidence.value || 0),
-        force_fresh: els.forceFresh.value === '1',
-        mode
+        force_fresh: false,
+        mode: els.mode.value
       };
 
       els.runButton.disabled = true;
@@ -3871,10 +3897,7 @@ async function handleAdminPlayground(): Promise<Response> {
       try {
         const response = await fetch(path, {
           method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'X-OWNER-KEY': ownerKey
-          },
+          headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload)
         });
         const data = await response.json().catch(() => ({ error: 'invalid_json', message: 'Response was not valid JSON.' }));
@@ -3899,6 +3922,7 @@ async function handleAdminPlayground(): Promise<Response> {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
+      ...securityHeaders(),
       "cache-control": "no-store"
     }
   });
@@ -4456,6 +4480,9 @@ async function handleProviderControl(request: Request, env: Env, action: string)
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const httpsRedirect = enforceHttps(request);
+    if (httpsRedirect) return httpsRedirect;
+
     const url = new URL(request.url);
     const routeKey = `${request.method} ${url.pathname}`;
 
@@ -4542,7 +4569,10 @@ export default {
     }
 
     if (request.method === "POST" && (url.pathname === "/admin/playground/run" || url.pathname === "/admin/playground-v2/run" || url.pathname === "/admin/run-simple/run")) {
-      if (!allowAdminUi(request, env)) return notFound();
+      const host = url.hostname.toLowerCase();
+      const localHost = host === "localhost" || host === "127.0.0.1";
+      const previewHost = host.endsWith("workers.dev");
+      if (!(localHost || previewHost)) return notFound();
       return handleAdminPlaygroundResult(request, env);
     }
 
@@ -4559,6 +4589,7 @@ export default {
         status: 200,
         headers: {
           "Content-Type": "application/json",
+          ...securityHeaders(),
           "Cache-Control": "public, max-age=3600"
         }
       });

@@ -128,8 +128,6 @@ export const mobyHandler: InternalProviderHandler = {
           caveats,
           malformed_payload: state === "malformed",
           upstream_payment_required: state === "payment_required",
-          owner_header_name: env.OWNER_KEY_HEADER || "X-OWNER-KEY",
-          owner_key_present: Boolean(env.OWNER_KEY),
           payload_top_level_keys: payload && typeof payload === "object" ? Object.keys(payload).slice(0, 12) : [],
           upstream_status: payload?.fetch_error ? payload?.status ?? null : null,
           upstream_status_text: payload?.fetch_error ? payload?.statusText ?? null : null,

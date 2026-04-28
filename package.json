@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev --env dev",
     "deploy": "wrangler deploy",
+    "security:check": "node scripts/security-check.mjs",
     "test": "vitest"
   },
   "devDependencies": {
